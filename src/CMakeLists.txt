@@ -7,6 +7,8 @@ project(TAPIR VERSION 1.0)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
+
 # add_compile_options(-Wall -Wextra -pedantic)
 
 # require protobuf
@@ -20,7 +22,8 @@ link_libraries(${OPENSSL_LIBRARIES})
 
 # require libevent
 find_package(Libevent REQUIRED)
-link_libraries(${LIBEVENT_LIBRARIES})
+include_directories(${LIBEVENT_INCLUDE_DIR})
+link_libraries(${LIBEVENT_LIB})
 
 # require gflags
 add_subdirectory(${CMAKE_SOURCE_DIR}/third_party/gflags)
