@@ -366,7 +366,7 @@ class RssCodebase:
                                        config['out_directory_name'], 'server-%d-%d-%d-stdout-%d.log' % (
                                            instance_idx, shard_idx, replica_idx, run))
             stderr_file = os.path.join(exp_directory,
-                                       config['out_directory_name'], 'server-%d-%d-stderr-%d.log' % (
+                                       config['out_directory_name'], 'server-%d-%d-%d-stderr-%d.log' % (
                                            instance_idx, shard_idx, replica_idx, run))
 
             if 'default_remote_shell' in config and config['default_remote_shell'] == 'bash':
