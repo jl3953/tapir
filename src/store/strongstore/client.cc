@@ -261,6 +261,11 @@ void Client::HandleWound(const uint64_t transaction_id) {
     }
 }
 
+// Force transaction to abort.
+void Client::ForceAbort(const uint64_t transaction_id) {
+    HandleWound(transaction_id);
+}
+
 /* Begins a transaction. All subsequent operations before a commit() or
  * abort() are part of this transaction.
  */

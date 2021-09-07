@@ -156,6 +156,8 @@ class Client : public ::Client {
     // Abort all Get(s) and Put(s) since Begin().
     virtual void Abort(std::unique_ptr<Context> &ctx, abort_callback acb, abort_timeout_callback atcb,
                        uint32_t timeout) override;
+    // Force transaction to abort.
+    void ForceAbort(const uint64_t transaction_id) override;
 
     // Commit all Get(s) and Put(s) since Begin().
     void ROCommit(std::unique_ptr<Context> &ctx, const std::unordered_set<std::string> &keys,

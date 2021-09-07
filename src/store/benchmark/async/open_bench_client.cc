@@ -105,7 +105,7 @@ void OpenBenchmarkClient::SendNextInSession(std::unique_ptr<Context> &ctx) {
     auto transaction = GetNextTransaction();
     stats.Increment(transaction->GetTransactionType() + "_attempts", 1);
 
-    std::size_t client_index = 1;  // TODO: Choose client
+    std::size_t client_index = 0;  // TODO: Choose client
     auto &client = *clients_[client_index];
 
     auto bcb = std::bind(&OpenBenchmarkClient::BeginCallback, this, tid, transaction, client_index, std::placeholders::_1);
@@ -399,34 +399,36 @@ void OpenBenchmarkClient::WarmupDone() {
     n = 0;
 }
 
+void OpenBenchmarkClient::CleanupContinue() {
+    auto n = executing_transactions_.size();
+    Notice("Waiting for %lu outstanding transactions.", n);
+
+    if (n > 0) {
+        transport_.TimerMicro(1e6, std::bind(&OpenBenchmarkClient::CleanupContinue, this));
+    } else {
+        CooldownDone();
+    }
+}
+
 void OpenBenchmarkClient::Cleanup() {
-    Notice("Aborting %lu outstanding transactions.", executing_transactions_.size());
+    auto n = executing_transactions_.size();
+    Notice("Aborting %lu outstanding transactions.", n);
 
-    std::atomic<std::size_t> outstanding_transactions{executing_transactions_.size()};
-
-    if (outstanding_transactions > 0) {
+    if (n > 0) {
         for (auto &kv : executing_transactions_) {
             auto transaction_id = kv.first;
             auto &et = kv.second;
 
-            auto transaction = et.transaction();
             auto op_index = et.op_index();
             auto &ctx = et.ctx();
 
             auto client_index = et.current_client_index();
             auto &client = *clients_[client_index];
 
-            auto acb = [this, &outstanding_transactions]() {
-                outstanding_transactions--;
-
-                if (outstanding_transactions == 0) {
-                    CooldownDone();
-                }
-            };
-            auto atcb = std::bind(&OpenBenchmarkClient::AbortTimeout, this);
-
-            client.Abort(ctx, acb, atcb, timeout_);
+            client.ForceAbort(transaction_id);
         }
+
+        transport_.TimerMicro(1e6, std::bind(&OpenBenchmarkClient::CleanupContinue, this));
     } else {
         CooldownDone();
     }

@@ -113,6 +113,10 @@ class Client {
         Panic("Unimplemented ROCommit!");
     }
 
+    virtual void ForceAbort(const uint64_t transaction_id) {
+        Panic("Unimplemented ForceAbort!");
+    }
+
     inline Stats &GetStats() { return stats; }
 
    protected:

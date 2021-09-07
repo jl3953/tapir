@@ -124,6 +124,7 @@ class OpenBenchmarkClient {
     void WarmupDone();
     void CooldownDone();
     void Cleanup();
+    void CleanupContinue();
 
     std::unordered_map<uint64_t, ExecutingTransaction> executing_transactions_;
     uint64_t next_transaction_id_;
