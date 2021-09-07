@@ -448,6 +448,7 @@ int main(int argc, char **argv) {
 
 void Cleanup(int signal) {
     Notice("Gracefully exiting after signal %d.", signal);
+    tport->Stop();
     if (FLAGS_stats_file.size() > 0) {
         Notice("Exporting stats to %s.", FLAGS_stats_file.c_str());
         server->GetStats().ExportJSON(FLAGS_stats_file);
