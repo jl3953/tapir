@@ -399,6 +399,39 @@ void OpenBenchmarkClient::WarmupDone() {
     n = 0;
 }
 
+void OpenBenchmarkClient::Cleanup() {
+    Notice("Aborting %lu outstanding transactions.", executing_transactions_.size());
+
+    std::atomic<std::size_t> outstanding_transactions{executing_transactions_.size()};
+
+    if (outstanding_transactions > 0) {
+        for (auto &kv : executing_transactions_) {
+            auto transaction_id = kv.first;
+            auto &et = kv.second;
+
+            auto transaction = et.transaction();
+            auto op_index = et.op_index();
+            auto &ctx = et.ctx();
+
+            auto client_index = et.current_client_index();
+            auto &client = *clients_[client_index];
+
+            auto acb = [this, &outstanding_transactions]() {
+                outstanding_transactions--;
+
+                if (outstanding_transactions == 0) {
+                    CooldownDone();
+                }
+            };
+            auto atcb = std::bind(&OpenBenchmarkClient::AbortTimeout, this);
+
+            client.Abort(ctx, acb, atcb, timeout_);
+        }
+    } else {
+        CooldownDone();
+    }
+}
+
 void OpenBenchmarkClient::CooldownDone() {
     done = true;
 
@@ -472,9 +505,6 @@ void OpenBenchmarkClient::OnReply(uint64_t transaction_id, int result, bool eras
         if ((state == COOL_DOWN || state == DONE) && !cooldownStarted) {
             Debug("Starting cooldown after %ld seconds.", diff.tv_sec);
             Finish();
-        } else if (state == DONE) {
-            Debug("Finished cooldown after %ld seconds.", diff.tv_sec);
-            CooldownDone();
         } else {
             Debug("Not done after %ld seconds.", diff.tv_sec);
         }
@@ -525,4 +555,7 @@ void OpenBenchmarkClient::Finish() {
     }
 
     cooldownStarted = true;
+
+    uint64_t cooldown_us = cooldownSec * 1e6;
+    transport_.TimerMicro(cooldown_us, std::bind(&OpenBenchmarkClient::Cleanup, this));
 }
