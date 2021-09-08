@@ -359,7 +359,8 @@ void OpenBenchmarkClient::ExecuteCallback(uint64_t transaction_id,
             uint64_t backoff = 0;
             if (abortBackoff > 0) {
                 uint64_t exp = n_attempts - 1;
-                backoff = static_cast<uint64_t>(1000 * 20 * (std::pow(1.3, exp)));
+                backoff = static_cast<uint64_t>(1000 * 50 * (std::pow(1.3, exp)));
+                backoff = std::min(backoff, 1000 * maxBackoff);
                 // uint64_t exp = std::min(n_attempts - 1UL, 56UL);
                 // Debug("Exp is %lu (min of %lu and 56.", exp, n_attempts - 1UL);
                 // uint64_t upper = std::min((1UL << exp) * abortBackoff, maxBackoff);
