@@ -254,7 +254,7 @@ void Client::HandleWound(const uint64_t transaction_id) {
             sclients_[coordinator]->Wound(transaction_id);
             break;
         case ContextState::ABORTING:
-            Debug("[%lu] Already aborted");
+            Debug("[%lu] Already aborted", transaction_id);
             break;
         default:
             Panic("Unexpected state: %d", state->state());
@@ -745,15 +745,15 @@ void Client::ROCommitCallback(std::unique_ptr<Context> &ctx, uint64_t req_id, in
 
 void Client::ROCommitSlowCallback(std::unique_ptr<Context> &ctx, uint64_t req_id, int shard_idx,
                                   uint64_t rw_transaction_id, const Timestamp &commit_ts, bool is_commit) {
+    auto search = pending_reqs_.find(req_id);
+    if (search == pending_reqs_.end()) {
+        Debug("ROCommitSlowCallback for terminated request id %lu", req_id);
+        return;
+    }
+
     auto tid = ctx->transaction_id();
 
     Debug("[%lu] ROCommitSlow callback", tid);
-
-    auto search = pending_reqs_.find(req_id);
-    if (search == pending_reqs_.end()) {
-        Debug("[%lu] ROCommitSlowCallback for terminated request id %lu", tid, req_id);
-        return;
-    }
 
     auto search2 = context_states_.find(tid);
     ASSERT(search2 != context_states_.end());

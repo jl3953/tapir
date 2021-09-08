@@ -61,8 +61,8 @@ class OpenBenchmarkClient {
    private:
     class ExecutingTransaction {
        public:
-        ExecutingTransaction(uint64_t id, AsyncTransaction *transaction, std::unique_ptr<Context> ctx, execute_callback ecb, std::size_t client_index)
-            : lat_{}, id_{id}, transaction_{transaction}, ctx_{std::move(ctx)}, ecb_{ecb}, n_attempts_{1}, op_index_{1}, current_client_index_{client_index}, current_client_txn_count_{0} {}
+        ExecutingTransaction(uint64_t id, AsyncTransaction *transaction, std::unique_ptr<Context> ctx, execute_callback ecb, std::size_t client_index, uint64_t n_attempts)
+            : lat_{}, id_{id}, transaction_{transaction}, ctx_{std::move(ctx)}, ecb_{ecb}, n_attempts_{n_attempts}, op_index_{1}, current_client_index_{client_index}, current_client_txn_count_{0} {}
 
         uint64_t id() const { return id_; }
         AsyncTransaction *transaction() const { return transaction_; }
@@ -81,9 +81,6 @@ class OpenBenchmarkClient {
         std::size_t current_client_index() const { return current_client_index_; }
         void set_client_index(std::size_t i) { current_client_index_ = i; }
 
-        std::size_t current_client_txn_count() const { return current_client_txn_count_; }
-        void incr_current_client_op_count() { current_client_txn_count_++; }
-
        private:
         Latency_Frame_t lat_;
         uint64_t id_;
@@ -101,7 +98,7 @@ class OpenBenchmarkClient {
     void SendNextInSession(std::unique_ptr<Context> &ctx);
 
     void BeginCallback(uint64_t transaction_id, AsyncTransaction *transaction,
-                       std::size_t client_index, std::unique_ptr<Context> ctx);
+                       std::size_t client_index, uint64_t n_attempts, std::unique_ptr<Context> ctx);
 
     void ExecuteNextOperation(const uint64_t transaction_id);
 

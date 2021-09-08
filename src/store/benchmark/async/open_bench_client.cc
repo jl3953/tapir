@@ -74,7 +74,7 @@ void OpenBenchmarkClient::SendNext() {
     std::size_t client_index = 0;  // TODO: Choose client
     auto &client = *clients_[client_index];
 
-    auto bcb = std::bind(&OpenBenchmarkClient::BeginCallback, this, tid, transaction, client_index, std::placeholders::_1);
+    auto bcb = std::bind(&OpenBenchmarkClient::BeginCallback, this, tid, transaction, client_index, 1, std::placeholders::_1);
     auto btcb = []() {};
 
     Operation op = transaction->GetNextOperation(0);
@@ -108,7 +108,7 @@ void OpenBenchmarkClient::SendNextInSession(std::unique_ptr<Context> &ctx) {
     std::size_t client_index = 0;  // TODO: Choose client
     auto &client = *clients_[client_index];
 
-    auto bcb = std::bind(&OpenBenchmarkClient::BeginCallback, this, tid, transaction, client_index, std::placeholders::_1);
+    auto bcb = std::bind(&OpenBenchmarkClient::BeginCallback, this, tid, transaction, client_index, 1, std::placeholders::_1);
     auto btcb = []() {};
 
     Operation op = transaction->GetNextOperation(0);
@@ -127,16 +127,16 @@ void OpenBenchmarkClient::SendNextInSession(std::unique_ptr<Context> &ctx) {
 }
 
 void OpenBenchmarkClient::BeginCallback(uint64_t transaction_id, AsyncTransaction *transaction,
-                                        std::size_t client_index, std::unique_ptr<Context> ctx) {
+                                        std::size_t client_index, uint64_t n_attempts, std::unique_ptr<Context> ctx) {
     auto ecb = std::bind(&OpenBenchmarkClient::ExecuteCallback, this, transaction_id, std::placeholders::_1);
 
-    executing_transactions_.emplace(transaction_id, ExecutingTransaction{transaction_id, transaction, std::move(ctx), ecb, client_index});
+    executing_transactions_.emplace(transaction_id, ExecutingTransaction{transaction_id, transaction, std::move(ctx),
+                                                                         ecb, client_index, n_attempts});
 
     auto search = executing_transactions_.find(transaction_id);
     ASSERT(search != executing_transactions_.end());
 
     auto &et = search->second;
-    et.current_client_txn_count();
 
     _Latency_StartRec(et.lat());
 
@@ -325,7 +325,7 @@ void OpenBenchmarkClient::ExecuteCallback(uint64_t transaction_id,
         if (result == COMMITTED) {
             stats.Increment(ttype + "_committed", 1);
 
-            if (stay_dist_(rand_)) {
+            if (!cooldownStarted && stay_dist_(rand_)) {
                 erase_et = false;
                 uint64_t next_arrival_us = static_cast<uint64_t>(think_time_dist_(rand_));
                 Debug("next arrival in session %lu us", next_arrival_us);
@@ -358,19 +358,22 @@ void OpenBenchmarkClient::ExecuteCallback(uint64_t transaction_id,
         } else {
             uint64_t backoff = 0;
             if (abortBackoff > 0) {
-                uint64_t exp = std::min(n_attempts - 1UL, 56UL);
-                Debug("Exp is %lu (min of %lu and 56.", exp, n_attempts - 1UL);
-                uint64_t upper = std::min((1UL << exp) * abortBackoff, maxBackoff);
-                Debug("Upper is %lu (min of %lu and %lu.", upper, (1UL << exp) * abortBackoff,
-                      maxBackoff);
-                backoff = std::uniform_int_distribution<uint64_t>(0UL, upper)(GetRand());
-                stats.Increment(ttype + "_backoff", backoff);
-                Debug("Backing off for %lums", backoff);
+                uint64_t exp = n_attempts - 1;
+                backoff = static_cast<uint64_t>(1000 * 20 * (std::pow(1.3, exp)));
+                // uint64_t exp = std::min(n_attempts - 1UL, 56UL);
+                // Debug("Exp is %lu (min of %lu and 56.", exp, n_attempts - 1UL);
+                // uint64_t upper = std::min((1UL << exp) * abortBackoff, maxBackoff);
+                // Debug("Upper is %lu (min of %lu and %lu.", upper, (1UL << exp) * abortBackoff,
+                //       maxBackoff);
+                // backoff = std::uniform_int_distribution<uint64_t>(0UL, upper)(GetRand());
+                // stats.Increment(ttype + "_backoff", backoff);
+                Debug("Backing off for %lu us: %lu", backoff, n_attempts);
             }
 
             et.incr_attempts();
+            n_attempts = et.n_attempts();
 
-            transport_.TimerMicro(backoff, [this, transaction_id]() {
+            transport_.TimerMicro(backoff, [this, transaction_id, n_attempts]() {
                 auto search = executing_transactions_.find(transaction_id);
                 ASSERT(search != executing_transactions_.end());
 
@@ -385,7 +388,7 @@ void OpenBenchmarkClient::ExecuteCallback(uint64_t transaction_id,
 
                 stats.Increment(ttype + "_attempts", 1);
 
-                auto bcb = std::bind(&OpenBenchmarkClient::BeginCallback, this, transaction_id, transaction, client_index, std::placeholders::_1);
+                auto bcb = std::bind(&OpenBenchmarkClient::BeginCallback, this, transaction_id, transaction, client_index, n_attempts, std::placeholders::_1);
                 auto btcb = []() {};
                 client.Retry(ctx, bcb, btcb, timeout_);
             });
