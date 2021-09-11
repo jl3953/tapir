@@ -1,92 +1,151 @@
-// -*- mode: c++; c-file-style: "k&r"; c-basic-offset: 4 -*-
-/***********************************************************************
- *
- * benchmark.h:
- *   simple replication benchmark client
- *
- * Copyright 2013 Dan R. K. Ports  <drkp@cs.washington.edu>
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use, copy,
- * modify, merge, publish, distribute, sublicense, and/or sell copies
- * of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- *
- **********************************************************************/
-#ifndef BENCHMARK_CLIENT_H
-#define BENCHMARK_CLIENT_H
+#ifndef OPEN_BENCHMARK_CLIENT_H
+#define OPEN_BENCHMARK_CLIENT_H
 
+#include <functional>
+#include <memory>
 #include <random>
+#include <unordered_map>
+#include <vector>
 
 #include "lib/latency.h"
+#include "lib/message.h"
 #include "lib/transport.h"
+#include "store/common/frontend/async_transaction.h"
+#include "store/common/frontend/client.h"
 #include "store/common/stats.h"
+#include "store/common/transaction.h"
+
+typedef std::function<void(transaction_status_t)> execute_callback;
 
 typedef std::function<void()> bench_done_callback;
 
+enum BenchmarkClientMode {
+    UNKNOWN,
+    OPEN,
+    CLOSED
+};
+
 class BenchmarkClient {
    public:
-    BenchmarkClient(Transport &transport, uint64_t id, int numRequests,
-                    int expDuration, uint64_t delay, int warmupSec,
-                    int cooldownSec, int tputInterval,
+    BenchmarkClient(const std::vector<Client *> &clients, uint32_t timeout,
+                    Transport &transport, uint64_t id,
+                    BenchmarkClientMode mode,
+                    double arrival_rate, double think_time, double stay_probability,
+                    int mpl,
+                    int expDuration, int warmupSec, int cooldownSec,
+                    uint32_t abortBackoff, bool retryAborted,
+                    uint32_t maxBackoff, uint32_t maxAttempts,
                     const std::string &latencyFilename = "");
     virtual ~BenchmarkClient();
 
     void Start(bench_done_callback bdcb);
-    void OnReply(int result);
+    void OnReply(uint64_t transaction_id, int result, bool erase_et = true);
 
-    void StartLatency();
-    virtual void SendNext() = 0;
-    void IncrementSent(int result);
+    void SendNext();
+    void ExecuteCallback(uint64_t transaction_id, transaction_status_t result);
+
     inline bool IsFullyDone() { return done; }
 
     struct Latency_t latency;
-    bool started;
-    bool done;
-    bool cooldownStarted;
     std::vector<uint64_t> latencies;
 
     inline const Stats &GetStats() const { return stats; }
 
    protected:
-    virtual std::string GetLastOp() const = 0;
+    virtual AsyncTransaction *GetNextTransaction() = 0;
 
-    inline std::mt19937 &GetRand() { return rand; }
+    inline std::mt19937 &GetRand() { return rand_; }
 
-    enum BenchState { WARM_UP = 0, MEASURE = 1, COOL_DOWN = 2, DONE = 3 };
+    enum BenchState { WARM_UP = 0,
+                      MEASURE = 1,
+                      COOL_DOWN = 2,
+                      DONE = 3 };
     BenchState GetBenchState(struct timeval &diff) const;
     BenchState GetBenchState() const;
 
     Stats stats;
-    Transport &transport;
+    Transport &transport_;
 
    private:
+    class ExecutingTransaction {
+       public:
+        ExecutingTransaction(uint64_t id, AsyncTransaction *transaction, std::unique_ptr<Context> ctx, execute_callback ecb, std::size_t client_index, uint64_t n_attempts)
+            : lat_{}, id_{id}, transaction_{transaction}, ctx_{std::move(ctx)}, ecb_{ecb}, n_attempts_{n_attempts}, op_index_{1}, current_client_index_{client_index}, current_client_txn_count_{0} {}
+
+        uint64_t id() const { return id_; }
+        AsyncTransaction *transaction() const { return transaction_; }
+        std::unique_ptr<Context> &ctx() { return ctx_; }
+        execute_callback ecb() const { return ecb_; }
+
+        Latency_Frame_t *lat() { return &lat_; }
+
+        uint64_t n_attempts() const { return n_attempts_; }
+        void incr_attempts() { n_attempts_++; }
+
+        uint64_t op_index() const { return op_index_; }
+        void reset_outstanding_ops() { op_index_ = 0; }
+        void incr_op_index() { op_index_++; }
+
+        std::size_t current_client_index() const { return current_client_index_; }
+        void set_client_index(std::size_t i) { current_client_index_ = i; }
+
+       private:
+        Latency_Frame_t lat_;
+        uint64_t id_;
+        AsyncTransaction *transaction_;
+        std::unique_ptr<Context> ctx_;
+        execute_callback ecb_;
+        uint64_t n_attempts_;
+        std::size_t op_index_;
+        std::size_t current_client_index_;
+        std::size_t current_client_txn_count_;
+    };
+
+    void ExecuteAbort(const uint64_t transaction_id, transaction_status_t status);
+
+    void SendNextInSession(std::unique_ptr<Context> &ctx);
+
+    void BeginCallback(uint64_t transaction_id, AsyncTransaction *transaction,
+                       std::size_t client_index, uint64_t n_attempts, std::unique_ptr<Context> ctx);
+
+    void ExecuteNextOperation(const uint64_t transaction_id);
+
+    void GetCallback(const uint64_t transaction_id,
+                     int status, const std::string &key, const std::string &val, Timestamp ts);
+    void GetTimeout(const uint64_t transaction_id,
+                    int status, const std::string &key);
+
+    void PutCallback(const uint64_t transaction_id,
+                     int status, const std::string &key, const std::string &val);
+    void PutTimeout(const uint64_t transaction_id,
+                    int status, const std::string &key, const std::string &val);
+
+    void CommitCallback(const uint64_t transaction_id, transaction_status_t status);
+    void CommitTimeout();
+    void AbortCallback(const uint64_t transaction_id, transaction_status_t status);
+    void AbortTimeout();
+
     void Finish();
     void WarmupDone();
     void CooldownDone();
-    void TimeInterval();
+    void Cleanup();
+    void CleanupContinue();
 
-    const uint64_t id;
-    int tputInterval;
-    std::mt19937 rand;
-    int numRequests;
-    int expDuration;
-    uint64_t delay;
+    std::unordered_map<uint64_t, ExecutingTransaction> executing_transactions_;
+    uint64_t next_transaction_id_;
+
+    const std::vector<Client *> &clients_;
+
+    const uint64_t client_id_;
+    uint32_t timeout_;
+    std::mt19937 rand_;
+    std::exponential_distribution<> next_arrival_dist_;
+    std::exponential_distribution<> think_time_dist_;
+    std::bernoulli_distribution stay_dist_;
     int n;
+    int n_sessions_started_;
+    int mpl_;
+    int exp_duration_;
     int warmupSec;
     int cooldownSec;
     struct timeval startTime;
@@ -94,9 +153,18 @@ class BenchmarkClient {
     struct timeval startMeasureTime;
     string latencyFilename;
     int msSinceStart;
-    int opLastInterval;
-    bench_done_callback curr_bdcb;
-    std::uniform_int_distribution<uint64_t> randDelayDist;
+    bench_done_callback curr_bdcb_;
+
+    uint64_t maxBackoff;
+    uint64_t abortBackoff;
+    bool retryAborted;
+    int64_t maxAttempts;
+
+    bool started;
+    bool done;
+    bool cooldownStarted;
+
+    BenchmarkClientMode mode_;
 };
 
-#endif /* BENCHMARK_CLIENT_H */
+#endif /* OPEN_BENCHMARK_CLIENT_H */

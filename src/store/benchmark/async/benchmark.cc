@@ -19,10 +19,10 @@
 #include "lib/latency.h"
 #include "lib/tcptransport.h"
 #include "lib/timeval.h"
+#include "store/benchmark/async/bench_client.h"
 #include "store/benchmark/async/common/key_selector.h"
 #include "store/benchmark/async/common/uniform_key_selector.h"
 #include "store/benchmark/async/common/zipf_key_selector.h"
-#include "store/benchmark/async/open_bench_client.h"
 #include "store/benchmark/async/retwis/retwis_client.h"
 #include "store/common/partitioner.h"
 #include "store/common/stats.h"
@@ -236,10 +236,28 @@ DEFINE_string(key_selector, keys_args[0],
               "select keys.");
 DEFINE_validator(key_selector, &ValidateKeys);
 
+const std::string bench_args[] = {"open", "closed"};
+
+const BenchmarkClientMode bench_modes[]{OPEN, CLOSED};
+static bool ValidateBenchMode(const char *flagname, const std::string &value) {
+    int n = sizeof(bench_args);
+    for (int i = 0; i < n; ++i) {
+        if (value == bench_args[i]) {
+            return true;
+        }
+    }
+    std::cerr << "Invalid value for --" << flagname << ": " << value
+              << std::endl;
+    return false;
+}
+DEFINE_string(bench_mode, bench_args[0], "benchmark mode (open or closed)");
+DEFINE_validator(bench_mode, &ValidateBenchMode);
+
 DEFINE_double(zipf_coefficient, 0.5, "the coefficient of the zipf distribution for key selection.");
 DEFINE_double(client_arrival_rate, 1.0, "arrival rate for open loop clients");
 DEFINE_double(client_think_time, 1.0, "think time for closed and partly open loop clients");
 DEFINE_double(client_stay_probability, 0.5, "session stay probability for partly open loop clients");
+DEFINE_double(mpl, 1, "multi-programming level for closed-loop clients");
 
 /**
  * RW settings.
@@ -316,7 +334,7 @@ DEFINE_string(customer_name_file_path, "smallbank_names",
 DEFINE_LATENCY(op);
 
 std::vector<Client *> clients;
-std::vector<OpenBenchmarkClient *> benchClients;
+std::vector<BenchmarkClient *> benchClients;
 std::vector<std::thread *> threads;
 Transport *tport;
 Partitioner *part;
@@ -378,6 +396,20 @@ int main(int argc, char **argv) {
             consistency = strong_consistency[i];
             break;
         }
+    }
+
+    // parse benchmark mode
+    BenchmarkClientMode bench_mode = UNKNOWN;
+    int numBenchModes = sizeof(bench_args);
+    for (int i = 0; i < numBenchModes; ++i) {
+        if (FLAGS_bench_mode == bench_args[i]) {
+            bench_mode = bench_modes[i];
+            break;
+        }
+    }
+    if (bench_mode == UNKNOWN) {
+        std::cerr << "Unknown bench mode." << std::endl;
+        return 1;
     }
 
     // parse benchmark
@@ -617,12 +649,14 @@ int main(int argc, char **argv) {
     }
 
     uint32_t seed = FLAGS_client_id << 4;
-    OpenBenchmarkClient *bench;
+    BenchmarkClient *bench;
     switch (benchMode) {
         case BENCH_RETWIS:
             bench = new retwis::RetwisClient(
                 keySelector, clients, FLAGS_message_timeout, *tport, seed,
+                bench_mode,
                 FLAGS_client_arrival_rate, FLAGS_client_think_time, FLAGS_client_stay_probability,
+                FLAGS_mpl,
                 FLAGS_exp_duration, FLAGS_warmup_secs, FLAGS_cooldown_secs,
                 FLAGS_tput_interval,
                 FLAGS_abort_backoff, FLAGS_retry_aborted, FLAGS_max_backoff,
