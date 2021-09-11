@@ -2,6 +2,9 @@
   "experiment_independent_vars": [
     [
       "consistency"
+    ],
+    [
+      "client_arrival_rate"
     ]
   ],
   "replication_protocol": "strong",
@@ -17,27 +20,37 @@
     "us-west-1-1",
     "us-west-1-2"
   ],
-  "consistency": [
-    "ss"
-  ],
+  "consistency": ["ss"],
   "num_instances": 1,
   "network_config": "network.json",
   "shard_config_format_str": "shard-%d.config",
   "replica_config_format_str": "replica-%d.config",
   "fault_tolerance": 1,
-  "num_shards": 1,
+  "num_shards": 3,
   "shards": [
     [
       "us-east-1-0",
       "eu-west-1-0",
       "us-west-1-0"
+    ],
+    [
+      "eu-west-1-1",
+      "us-west-1-1",
+      "us-east-1-1"
+    ],
+    [
+      "us-west-1-2",
+      "us-east-1-2",
+      "eu-west-1-2"
     ]
   ],
-  "client_total": 1,
+  "client_total": 3,
   "client_processes_per_client_node": 1,
   "client_threads_per_process": 1,
   "clients": [
-    "client-0-0"
+    "client-0-0",
+    "client-1-0",
+    "client-2-0"
   ],
   "server_regions": {
     "us-east-1": [
@@ -65,8 +78,8 @@
   "benchmark_name": "retwis",
   "client_key_selector": "zipf",
   "client_zipf_coefficient": 0.7,
-  "client_arrival_rate": 5,
-  "client_stay_probability": 0.2,
+  "client_arrival_rate": [50, 55, 60, 65, 70],
+  "client_stay_probability": 0.8,
   "client_think_time": 0,
   "nb_time_alpha": 1.0,
   "rw_num_ops_txn": 1,
@@ -85,18 +98,18 @@
     "txn_groups",
     "commit_branch"
   ],
-  "experiment_name": "spanner-rss",
+  "experiment_name": "spanner-rss1",
   "codebase_name": "rss",
   "pin_client_processes": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
   "pin_server_processes": [2],
   "client_debug_output": false,
   "server_debug_output": false,
   "client_debug_stats": false,
-  "server_debug_stats": true,
-  "client_experiment_length": 60,
+  "server_debug_stats": false,
+  "client_experiment_length": 240,
   "client_rand_sleep": 0,
-  "client_ramp_down": 10,
-  "client_ramp_up": 10,
+  "client_ramp_up": 15,
+  "client_ramp_down": 15,
   "default_remote_shell": "bash",
   "server_host_format_str": "%s.%s.%s.utah.cloudlab.us",
   "client_host_format_str": "%s.%s.%s.utah.cloudlab.us",
