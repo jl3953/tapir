@@ -2,10 +2,6 @@
   "experiment_independent_vars": [
     [
       "consistency"
-    ],
-    [
-      "client_total",
-      "client_processes_per_client_node"
     ]
   ],
   "replication_protocol": "strong",
@@ -21,12 +17,11 @@
     "us-west-1-1",
     "us-west-1-2"
   ],
-  "consistency": [
-    "ss"
-  ],
-  "shard_config": "shard.config",
-  "replica_config": "replica.config",
+  "consistency": ["ss", "rss"],
+  "num_instances": 1,
   "network_config": "network.json",
+  "shard_config_format_str": "shard-%d.config",
+  "replica_config_format_str": "replica-%d.config",
   "fault_tolerance": 1,
   "num_shards": 3,
   "shards": [
@@ -46,22 +41,8 @@
       "eu-west-1-2"
     ]
   ],
-  "client_total": [
-    6,
-    12,
-    18,
-    24,
-    30,
-    36
-  ],
-  "client_processes_per_client_node": [
-    2,
-    4,
-    6,
-    8,
-    10,
-    12
-  ],
+  "client_total": 3,
+  "client_processes_per_client_node": 1,
   "client_threads_per_process": 1,
   "clients": [
     "client-0-0",
@@ -92,8 +73,13 @@
   "truetime_error": 10,
   "client_num_keys": 10000000,
   "benchmark_name": "retwis",
+  "bench_mode": "open",
   "client_key_selector": "zipf",
   "client_zipf_coefficient": 0.9,
+  "client_arrival_rate": 2,
+  "client_stay_probability": 0.9,
+  "client_think_time": 0,
+  "nb_time_alpha": 1.0,
   "rw_num_ops_txn": 1,
   "server_load_time": 20,
   "server_preload_keys": true,
@@ -104,24 +90,24 @@
   "client_message_timeout": 60000,
   "run_locally": false,
   "replication_protocol_settings": {
-    "message_transport_type": "udp"
+    "message_transport_type": "tcp"
   },
   "stats_merge_lists": [
     "txn_groups",
     "commit_branch"
   ],
-  "experiment_name": "jhelt-QV96657",
+  "experiment_name": "spanner-rss1",
   "codebase_name": "rss",
-  "pin_client_processes": false,
-  "pin_server_processes": false,
+  "pin_client_processes": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "pin_server_processes": [2],
   "client_debug_output": false,
   "server_debug_output": false,
   "client_debug_stats": false,
-  "server_debug_stats": true,
-  "client_experiment_length": 360,
-  "client_rand_sleep": 200,
-  "client_ramp_down": 15,
-  "client_ramp_up": 15,
+  "server_debug_stats": false,
+  "client_experiment_length": 720,
+  "client_rand_sleep": 0,
+  "client_ramp_up": 30,
+  "client_ramp_down": 30,
   "default_remote_shell": "bash",
   "server_host_format_str": "%s.%s.%s.utah.cloudlab.us",
   "client_host_format_str": "%s.%s.%s.utah.cloudlab.us",
@@ -177,137 +163,7 @@
     }
   },
   "server_emulate_wan": true,
-  "plots": [
-    {
-      "name": "tput-p50",
-      "font": "DejaVu Sans,12",
-      "height": 600,
-      "width": 800,
-      "series_indep_vars_idx": 0,
-      "series_titles": [
-        "Spanner",
-        "Spanner-VSS"
-      ],
-      "x_var_is_config": false,
-      "y_var": [
-        "run_stats",
-        "combined",
-        "p50",
-        "p50"
-      ],
-      "y_label": "p50 Latency",
-      "x_label": "Throughput (txn/s)",
-      "x_indep_vars_idx": 1,
-      "x_var": [
-        "run_stats",
-        "combined",
-        "tput",
-        "p50"
-      ]
-    },
-    {
-      "name": "tput-p90",
-      "font": "DejaVu Sans,12",
-      "height": 600,
-      "width": 800,
-      "series_indep_vars_idx": 0,
-      "series_titles": [
-        "Spanner",
-        "Spanner-VSS"
-      ],
-      "x_var_is_config": false,
-      "y_var": [
-        "run_stats",
-        "combined",
-        "p90",
-        "p50"
-      ],
-      "y_label": "p90 Latency",
-      "x_label": "Throughput (txn/s)",
-      "x_indep_vars_idx": 1,
-      "x_var": [
-        "run_stats",
-        "combined",
-        "tput",
-        "p50"
-      ]
-    },
-    {
-      "name": "tput-p99",
-      "font": "DejaVu Sans,12",
-      "height": 600,
-      "width": 800,
-      "series_indep_vars_idx": 0,
-      "series_titles": [
-        "Spanner",
-        "Spanner-VSS"
-      ],
-      "x_var_is_config": false,
-      "y_var": [
-        "run_stats",
-        "combined",
-        "p99",
-        "p50"
-      ],
-      "y_label": "p99 Latency",
-      "x_label": "Throughput (txn/s)",
-      "x_indep_vars_idx": 1,
-      "x_var": [
-        "run_stats",
-        "combined",
-        "tput",
-        "p50"
-      ]
-    },
-    {
-      "name": "lat-clients",
-      "font": "DejaVu Sans,12",
-      "height": 600,
-      "width": 800,
-      "series_indep_vars_idx": 0,
-      "series_titles": [
-        "Spanner",
-        "Spanner-VSS"
-      ],
-      "x_var_is_config": true,
-      "x_var": [
-        "client_total"
-      ],
-      "x_label": "Clients",
-      "y_label": "Latency (p90)",
-      "x_indep_vars_idx": 1,
-      "y_var": [
-        "run_stats",
-        "combined",
-        "p90",
-        "p50"
-      ]
-    },
-    {
-      "name": "tput-clients",
-      "font": "DejaVu Sans,12",
-      "height": 600,
-      "width": 800,
-      "series_indep_vars_idx": 0,
-      "series_titles": [
-        "Spanner",
-        "Spanner-VSS"
-      ],
-      "x_var_is_config": true,
-      "x_var": [
-        "client_total"
-      ],
-      "x_label": "Clients",
-      "y_label": "Throughput (txn/s)",
-      "x_indep_vars_idx": 1,
-      "y_var": [
-        "run_stats",
-        "combined",
-        "tput",
-        "p50"
-      ]
-    }
-  ],
+  "plots": [],
   "cdf_plots": {
     "font": "DejaVu Sans,12",
     "height": 600,
@@ -337,7 +193,7 @@
   "plot_tput_lat_y_label": "Latency (ms)",
   "input_latency_scale": 1000000000,
   "output_latency_scale": 1000,
-  "src_commit_hash": "spanner",
+  "src_commit_hash": "composition",
   "stats_file_name": "stats.json",
   "base_local_exp_directory": "/users/jhelt/tapir/experiments/results",
   "base_mounted_fs_path": "/mnt/extra",
