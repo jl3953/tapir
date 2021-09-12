@@ -52,6 +52,8 @@ class RssCodebase:
 
         client_id = i * config["client_processes_per_client_node"] + k
 
+        bench_mode = config['bench_mode']
+
         truetime_error = config["truetime_error"] if "truetime_error" in config else 0
         client_command = ' '.join([str(x) for x in [
             path_to_client_bin,
@@ -61,6 +63,7 @@ class RssCodebase:
             '--net_config_path', network_config_path,
             '--num_shards', config['num_shards'],
             '--benchmark', config['benchmark_name'],
+            '--bench_mode', bench_mode,
             '--exp_duration', config['client_experiment_length'],
             '--warmup_secs', config['client_ramp_up'],
             '--cooldown_secs', config['client_ramp_down'],
@@ -68,6 +71,13 @@ class RssCodebase:
             '--stats_file', stats_file,
             '--clock_error', truetime_error,
             '--strong_consistency', config['consistency']]])
+
+        if bench_mode == 'open':
+            client_command += ' --client_arrival_rate %f' % config['client_arrival_rate']
+            client_command += ' --client_think_time %f' % config['client_think_time']
+            client_command += ' --client_stay_probability %f' % config['client_stay_probability']
+        elif bench_mode == 'closed':
+            client_command += ' --mpl=%d' % config['mpl']
 
         if config['server_emulate_wan']:
             client_command += ' --ping_replicas=true'
@@ -87,15 +97,6 @@ class RssCodebase:
 
         if 'client_debug_stats' in config and config['client_debug_stats']:
             client_command += ' --debug_stats'
-
-        if 'client_arrival_rate' in config:
-            client_command += ' --client_arrival_rate %f' % config['client_arrival_rate']
-
-        if 'client_think_time' in config:
-            client_command += ' --client_think_time %f' % config['client_think_time']
-
-        if 'client_stay_probability' in config:
-            client_command += ' --client_stay_probability %f' % config['client_stay_probability']
 
         if 'nb_time_alpha' in config:
             client_command += ' --nb_time_alpha %f' % config['nb_time_alpha']

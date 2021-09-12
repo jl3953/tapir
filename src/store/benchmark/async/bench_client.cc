@@ -594,6 +594,7 @@ void BenchmarkClient::Finish() {
 
     Notice("Completed %d requests in " FMT_TIMEVAL_DIFF " seconds", n,
            VA_TIMEVAL_DIFF(diff));
+    Notice("%lu outstanding transactions.", executing_transactions_.size());
 
     if (latencyFilename.size() > 0) {
         Latency_FlushTo(latencyFilename.c_str());
