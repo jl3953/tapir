@@ -104,7 +104,7 @@
   "server_debug_output": false,
   "client_debug_stats": false,
   "server_debug_stats": false,
-  "client_experiment_length": 720,
+  "client_experiment_length": 5400,
   "client_rand_sleep": 0,
   "client_ramp_up": 30,
   "client_ramp_down": 30,
