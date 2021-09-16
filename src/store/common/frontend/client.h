@@ -15,6 +15,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <unordered_set>
 
 #include "lib/assert.h"
 #include "lib/latency.h"

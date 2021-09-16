@@ -35,6 +35,7 @@
 #define _STRONG_OCC_STORE_H_
 
 #include <map>
+#include <unordered_set>
 
 #include "lib/assert.h"
 #include "lib/message.h"

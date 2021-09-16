@@ -7,75 +7,88 @@
   "replication_protocol": "strong",
   "client_protocol_mode": "span-lock",
   "server_names": [
-    "us-east-1-0",
-    "us-east-1-1",
-    "us-east-1-2",
-    "eu-west-1-0",
-    "eu-west-1-1",
-    "eu-west-1-2",
-    "ap-northeast-1-0",
-    "ap-northeast-1-1",
-    "ap-northeast-1-2"
+    "10.0.0.197",
+    "10.0.0.200",
+    "10.0.0.84",
+    "10.0.1.128",
+    "10.0.1.248",
+    "10.0.1.151",
+    "10.0.2.220",
+    "10.0.2.12",
+    "10.0.2.30"
   ],
-  "consistency": [
-    "rss"
-  ],
+  "consistency": ["ss"],
   "num_instances": 1,
+  "network_config": "network.json",
   "shard_config_format_str": "shard-%d.config",
   "replica_config_format_str": "replica-%d.config",
-  "network_config": "network.json",
   "fault_tolerance": 1,
-  "num_shards": 1,
+  "num_shards": 3,
   "shards": [
     [
-      "us-east-1-0",
-      "eu-west-1-0",
-      "ap-northeast-1-0"
+      "10.0.0.197",
+      "10.0.1.128",
+      "10.0.2.220"
+    ],
+    [
+      "10.0.0.200",
+      "10.0.1.248",
+      "10.0.2.12"
+    ],
+    [
+      "10.0.0.84",
+      "10.0.1.151",
+      "10.0.2.30"
     ]
   ],
-  "client_total": 1,
+  "client_total": 3,
   "client_processes_per_client_node": 1,
   "client_threads_per_process": 1,
   "clients": [
-    "client-0-0"
+    "10.0.0.79",
+    "10.0.1.6",
+    "10.0.2.164"
   ],
   "server_regions": {
     "us-east-1": [
-      "us-east-1-0",
-      "us-east-1-1",
-      "us-east-1-2",
-      "client-0-0"
+      "10.0.0.197",
+      "10.0.0.200",
+      "10.0.0.84",
+      "10.0.0.79"
+    ],
+    "us-west-1": [
+      "10.0.1.128",
+      "10.0.1.248",
+      "10.0.1.151",
+      "10.0.1.6"
     ],
     "eu-west-1": [
-      "eu-west-1-0",
-      "eu-west-1-1",
-      "eu-west-1-2"
-    ],
-    "ap-northeast-1": [
-      "ap-northeast-1-0",
-      "ap-northeast-1-1",
-      "ap-northeast-1-2"
+      "10.0.2.220",
+      "10.0.2.12",
+      "10.0.2.30",
+      "10.0.2.164"
     ]
   },
   "server_port": 7087,
   "truetime_error": 10,
-  "client_num_keys": 100,
+  "client_num_keys": 1000,
   "benchmark_name": "retwis",
   "bench_mode": "open",
   "client_key_selector": "zipf",
-  "client_zipf_coefficient": 0.7,
-  "client_arrival_rate": 1,
-  "client_stay_probability": 0.5,
+  "client_zipf_coefficient": 0.5,
+  "client_arrival_rate": 5,
+  "client_stay_probability": 0.1,
   "client_think_time": 0,
   "nb_time_alpha": 1.0,
   "rw_num_ops_txn": 1,
+  "server_load_time": 20,
   "server_preload_keys": true,
   "client_abort_backoff": 1,
   "client_retry_aborted": true,
   "client_max_attempts": -1,
   "client_max_backoff": 2500,
   "client_message_timeout": 60000,
-  "run_locally": true,
+  "run_locally": false,
   "replication_protocol_settings": {
     "message_transport_type": "tcp"
   },
@@ -85,69 +98,35 @@
   ],
   "experiment_name": "",
   "codebase_name": "rss",
-  "pin_client_processes": false,
-  "pin_server_processes": false,
-  "client_debug_output": true,
-  "server_debug_output": true,
+  "pin_client_processes": [0],
+  "pin_server_processes": [0],
+  "client_debug_output": false,
+  "server_debug_output": false,
   "client_debug_stats": false,
-  "server_debug_stats": true,
-  "server_load_time": 0,
-  "client_experiment_length": 10,
+  "server_debug_stats": false,
+  "client_experiment_length": 15,
   "client_rand_sleep": 0,
-  "client_ramp_down": 0,
-  "client_ramp_up": 0,
+  "client_ramp_up": 5,
+  "client_ramp_down": 5,
   "default_remote_shell": "bash",
-  "server_host_format_str": "%s.%s.%s.utah.cloudlab.us",
-  "client_host_format_str": "%s.%s.%s.utah.cloudlab.us",
+  "server_host_format_str": "%s%s%s",
+  "client_host_format_str": "%s%s%s",
   "project_name": "",
   "region_rtt_latencies": {
     "us-east-1": {
       "us-east-1": 0,
-      "eu-west-1": 73,
-      "ap-northeast-1": 160,
-      "us-west-1": 63,
-      "eu-central-1": 87,
-      "ap-southeast-2": 199
+      "eu-west-1": 68,
+      "us-west-1": 63
     },
     "eu-west-1": {
-      "us-east-1": 73,
+      "us-east-1": 68,
       "eu-west-1": 0,
-      "ap-northeast-1": 220,
-      "us-west-1": 145,
-      "eu-central-1": 26,
-      "ap-southeast-2": 255
-    },
-    "ap-northeast-1": {
-      "us-east-1": 160,
-      "eu-west-1": 220,
-      "ap-northeast-1": 0,
-      "us-west-1": 115,
-      "eu-central-1": 243,
-      "ap-southeast-2": 106
+      "us-west-1": 138
     },
     "us-west-1": {
       "us-east-1": 63,
-      "eu-west-1": 145,
-      "ap-northeast-1": 115,
-      "us-west-1": 0,
-      "eu-central-1": 148,
-      "ap-southeast-2": 139
-    },
-    "eu-central-1": {
-      "us-east-1": 87,
-      "eu-west-1": 26,
-      "ap-northeast-1": 243,
-      "us-west-1": 148,
-      "eu-central-1": 0,
-      "ap-southeast-2": 177
-    },
-    "ap-southeast-2": {
-      "us-east-1": 199,
-      "eu-west-1": 255,
-      "ap-northeast-1": 106,
-      "us-west-1": 139,
-      "eu-central-1": 177,
-      "ap-southeast-2": 0
+      "eu-west-1": 138,
+      "us-west-1": 0
     }
   },
   "server_emulate_wan": false,
@@ -181,16 +160,16 @@
   "plot_tput_lat_y_label": "Latency (ms)",
   "input_latency_scale": 1000000000,
   "output_latency_scale": 1000,
-  "src_commit_hash": "composition",
+  "src_commit_hash": "aws",
   "stats_file_name": "stats.json",
-  "base_local_exp_directory": "/home/ubuntu/experiments",
-  "base_mounted_fs_path": "/home/ubuntu/",
-  "base_remote_bin_directory_nfs": "/home/ubuntu/",
+  "base_local_exp_directory": "/home/ubuntu/tapir/experiments/results",
+  "base_mounted_fs_path": "/home/ubuntu/experiments",
+  "base_remote_bin_directory_nfs": "/home/ubuntu/tapir",
   "base_remote_exp_directory": "/home/ubuntu/experiments",
   "bin_directory_name": "bin",
   "client_bin_name": "benchmark",
   "client_name_format_str": "%s",
-  "emulab_user": "root",
+  "emulab_user": "ubuntu",
   "max_bandwidth": "10gibps",
   "max_file_descriptors": 1000000,
   "max_retries": 1,

@@ -444,16 +444,16 @@ class RssCodebase:
                 'server_regions': {'localhost': ['localhost']},
                 'region_rtt_latencies': {'localhost': {'localhost': 0}}
             }
-        elif "server_emulate_wan" in config and not config["server_emulate_wan"]:
-            rtts = {}
-            for r1, lats in config['region_rtt_latencies'].items():
-                rtts[r1] = dict.fromkeys(lats.keys(), 0)
+        #elif "server_emulate_wan" in config and not config["server_emulate_wan"]:
+        #    rtts = {}
+        #    for r1, lats in config['region_rtt_latencies'].items():
+        #        rtts[r1] = dict.fromkeys(lats.keys(), 0)
 
-            print(rtts)
-            network_data = {
-                'server_regions': config['server_regions'],
-                'region_rtt_latencies': rtts
-            }
+        #    print(rtts)
+        #    network_data = {
+        #        'server_regions': config['server_regions'],
+        #        'region_rtt_latencies': rtts
+        #    }
         else:
             network_data = {
                 'server_regions': config['server_regions'],

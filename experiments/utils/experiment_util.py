@@ -450,9 +450,9 @@ def run_experiment(config_file, client_config_idx, executor):
 
         wan = 'server_emulate_wan' in config and (config['server_emulate_wan'] and (
             not 'run_locally' in config or not config['run_locally']))
-        if not 'run_locally' in config or not config['run_locally']:
-            print('Setting up emulated WAN latencies.')
-            setup_delays(config, wan, executor)
+        #if not 'run_locally' in config or not config['run_locally']:
+        #    print('Setting up emulated WAN latencies.')
+        #    setup_delays(config, wan, executor)
         kill_clients(config, executor)
         kill_servers(config, executor)
         if 'remade_binaries' not in SERVERS_SETUP:
