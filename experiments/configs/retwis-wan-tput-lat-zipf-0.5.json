@@ -79,7 +79,7 @@
   "client_key_selector": "zipf",
   "client_zipf_coefficient": 0.5,
   "bench_mode": "closed",
-  "mpl": [460, 480, 500],
+  "mpl": [420, 430, 440, 450, 460],
   "client_arrival_rate": 1,
   "nb_time_alpha": 1.0,
   "rw_num_ops_txn": 1,
