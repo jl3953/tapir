@@ -93,12 +93,9 @@ void BenchmarkClient::SendNext() {
 
     Operation op = transaction->GetNextOperation(0);
     switch (op.type) {
-        case BEGIN_RW:
-            client.BeginRW(session, bcb, btcb, timeout_);
-            break;
-
         case BEGIN_RO:
-            client.BeginRO(session, bcb, btcb, timeout_);
+        case BEGIN_RW:
+            client.Begin(session, bcb, btcb, timeout_);
             break;
 
         default:
@@ -171,12 +168,10 @@ void BenchmarkClient::SendNextInSession(const uint64_t session_id) {
 
     Operation op = transaction->GetNextOperation(0);
     switch (op.type) {
+        // TODO: Combine two begin types
         case BEGIN_RW:
-            client.BeginRW(session, bcb, btcb, timeout_);
-            break;
-
         case BEGIN_RO:
-            client.BeginRO(session, bcb, btcb, timeout_);
+            client.Begin(session, bcb, btcb, timeout_);
             break;
 
         default:

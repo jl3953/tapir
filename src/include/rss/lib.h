@@ -10,13 +10,14 @@ namespace rss {
 
 class Session;
 
-using barrier_func_t = std::function<void(const Session &)>;
+using continuation_func_t = std::function<void()>;
+using barrier_func_t = std::function<void(const Session &, continuation_func_t)>;
 
 void RegisterRSSService(const std::string &name, barrier_func_t bf);
 void UnregisterRSSService(const std::string &name);
 
-void StartTransaction(Session &s, const std::string &name);
-void EndTransaction(Session &s, const std::string &name);
+void StartTransaction(const std::string &name, Session &s, continuation_func_t continuation);
+void EndTransaction(const std::string &name, Session &s);
 
 class Session {
    public:
@@ -28,11 +29,11 @@ class Session {
     uint64_t id() const { return id_; }
 
    protected:
-    void StartTransaction(const std::string &name);
+    void StartTransaction(const std::string &name, continuation_func_t continuation);
     void EndTransaction(const std::string &name);
 
-    friend void StartTransaction(Session &s, const std::string &name);
-    friend void EndTransaction(Session &s, const std::string &name);
+    friend void StartTransaction(const std::string &name, Session &s, continuation_func_t continuation);
+    friend void EndTransaction(const std::string &name, Session &s);
 
    private:
     enum RSSServiceState {
@@ -40,8 +41,6 @@ class Session {
         EXECUTING,
         EXECUTED
     };
-
-    void UpdateLastService(const std::string &name);
 
     static std::atomic<std::uint64_t> next_id_;
 
@@ -61,7 +60,7 @@ class RSSRegistry {
         RSSService(std::string name, barrier_func_t bf);
         ~RSSService();
 
-        void invoke_barrier(const Session &session) const { bf_(session); }
+        void invoke_barrier(const Session &session, continuation_func_t continuation) const { bf_(session, continuation); }
 
        private:
         std::string name_;

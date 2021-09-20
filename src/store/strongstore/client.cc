@@ -56,7 +56,7 @@ Client::Client(Consistency consistency, const NetworkConfiguration &net_config,
 
     CalculateCoordinatorChoices();
 
-    rss::RegisterRSSService(service_name_, std::bind(&Client::RealTimeBarrier, this, std::placeholders::_1));
+    rss::RegisterRSSService(service_name_, std::bind(&Client::RealTimeBarrier, this, std::placeholders::_1, std::placeholders::_2));
 }
 
 Client::~Client() {
@@ -258,19 +258,30 @@ void Client::ForceAbort(const uint64_t transaction_id) {
     HandleWound(transaction_id);
 }
 
-void Client::RealTimeBarrier(const rss::Session &session) {
+void Client::RealTimeBarrier(const rss::Session &session, rss::continuation_func_t continuation) {
+    const uint64_t L = 10 * 1e3;  // TODO: Remove hardcoding
+
     Debug("[%lu] invoked real-time barrier at client %s!", session.id(), service_name_.c_str());
+
+    auto search = tmins_.find(session.id());
+    ASSERT(search != tmins_.end());
+
+    auto &tmin = search->second;
+
+    uint64_t wait_us = tt_.TimeToWaitUntilMicros(tmin.getTimestamp() + L);
+
+    Debug("Waiting %lu us", wait_us);
+
+    transport_->TimerMicro(wait_us, continuation);
+
+    tmins_.erase(search);
 }
 
 Session &Client::BeginSession() {
     StrongSession session{};
     auto sid = session.id();
 
-    Debug("BeginSession1");
-
     sessions_.emplace(sid, std::move(session));
-
-    Debug("BeginSession2");
 
     return sessions_.find(sid)->second;
 }
@@ -278,28 +289,23 @@ Session &Client::BeginSession() {
 Session &Client::ContinueSession(rss::Session &rss_session) {
     auto sid = rss_session.id();
 
-    Debug("ContinueSession1");
-
     sessions_.emplace(sid, StrongSession{std::move(rss_session)});
-
-    Debug("ContinueSession2");
 
     return sessions_.find(sid)->second;
 }
 
-rss::Session Client::EndSession(Session &session) {
-    auto search = sessions_.find(session.id());
+rss::Session Client::EndSession(Session &s) {
+    auto &session = static_cast<StrongSession &>(s);
+
+    auto sid = s.id();
+    auto search = sessions_.find(sid);
     ASSERT(search != sessions_.end());
 
-    Debug("EndSession1");
+    tmins_.emplace(sid, session.min_read_ts());
 
     rss::Session rss_session = std::move(session);
 
-    Debug("EndSession2");
-
     sessions_.erase(search);
-
-    Debug("EndSession3");
 
     return std::move(rss_session);
 }
@@ -307,7 +313,11 @@ rss::Session Client::EndSession(Session &session) {
 /* Begins a transaction. All subsequent operations before a commit() or
  * abort() are part of this transaction.
  */
-void Client::Begin(Session &s) {
+void Client::Begin(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) {
+    rss::StartTransaction(service_name_, session, std::bind(&Client::ContinueBegin, this, std::ref(session), bcb));
+}
+
+void Client::ContinueBegin(Session &s, begin_callback bcb) {
     auto &session = static_cast<StrongSession &>(s);
 
     if (session.transaction_id() != static_cast<uint64_t>(-1)) {
@@ -326,35 +336,22 @@ void Client::Begin(Session &s) {
     for (uint64_t i = 0; i < nshards_; i++) {
         sclients_[i]->Begin(tid, start_ts);
     }
-}
-
-void Client::BeginRW(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) {
-    rss::StartTransaction(session, service_name_);
-
-    Begin(session);
 
     bcb();
 }
 
-void Client::BeginRO(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) {
-    rss::StartTransaction(session, service_name_);
-
-    Begin(session);
-
-    bcb();
-}
-
-/* Begins a transaction, retrying the transaction indicated by ctx.
+/* Begins a transaction, retrying the transaction indicated by session.
  */
-void Client::Retry(Session &s, begin_callback bcb,
-                   begin_timeout_callback btcb, uint32_t timeout) {
+void Client::Retry(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) {
+    rss::StartTransaction(service_name_, session, std::bind(&Client::ContinueRetry, this, std::ref(session), bcb));
+}
+
+void Client::ContinueRetry(Session &s, begin_callback bcb) {
     auto &session = static_cast<StrongSession &>(s);
 
     if (session.transaction_id() != static_cast<uint64_t>(-1)) {
         sessions_by_transaction_id_.erase(session.transaction_id());
     }
-
-    rss::StartTransaction(session, service_name_);
 
     auto tid = next_transaction_id_++;
 
@@ -582,7 +579,7 @@ void Client::CommitCallback(StrongSession &session, uint64_t req_id, int status,
         Debug("min_read_timestamp_: %lu.%lu", min_read_ts.getTimestamp(), min_read_ts.getID());
     }
 
-    rss::EndTransaction(session, service_name_);
+    rss::EndTransaction(service_name_, session);
 
     transport_->Timer(ms, std::bind(ccb, tstatus));
 }
@@ -630,7 +627,7 @@ void Client::AbortCallback(StrongSession &session, uint64_t req_id) {
         pending_reqs_.erase(req_id);
         delete req;
 
-        rss::EndTransaction(session, service_name_);
+        rss::EndTransaction(service_name_, session);
 
         Debug("[%lu] Abort finished", tid);
         acb();
@@ -724,7 +721,7 @@ void Client::ROCommitCallback(StrongSession &session, uint64_t req_id, int shard
         auto &min_read_ts = session.min_read_ts();
         Debug("min_read_timestamp_: %lu.%lu", min_read_ts.getTimestamp(), min_read_ts.getID());
 
-        rss::EndTransaction(session, service_name_);
+        rss::EndTransaction(service_name_, session);
 
         Debug("[%lu] COMMIT OK", tid);
         ccb(COMMITTED);
@@ -758,7 +755,7 @@ void Client::ROCommitSlowCallback(StrongSession &session, uint64_t req_id, int s
         auto &min_read_ts = session.min_read_ts();
         Debug("min_read_timestamp_: %lu.%lu", min_read_ts.getTimestamp(), min_read_ts.getID());
 
-        rss::EndTransaction(session, service_name_);
+        rss::EndTransaction(service_name_, session);
 
         Debug("[%lu] COMMIT OK", tid);
         ccb(COMMITTED);

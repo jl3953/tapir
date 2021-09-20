@@ -157,11 +157,8 @@ class Client : public ::Client {
     virtual rss::Session EndSession(Session &session) override;
 
     // Overriding functions from ::Client
-    // Begin a RW transaction
-    virtual void BeginRW(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) override;
-
-    // Begin a RO transaction
-    virtual void BeginRO(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) override;
+    // Begin a transaction
+    virtual void Begin(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) override;
 
     // Begin a retried transaction.
     virtual void Retry(Session &session, begin_callback bcb,
@@ -215,7 +212,8 @@ class Client : public ::Client {
         int outstandingPrepares;
     };
 
-    void Begin(Session &session);
+    void ContinueBegin(Session &session, begin_callback bcb);
+    void ContinueRetry(Session &session, begin_callback bcb);
 
     // local Prepare function
     void CommitCallback(StrongSession &session, uint64_t req_id, int status, Timestamp commit_ts, Timestamp nonblock_ts);
@@ -231,7 +229,7 @@ class Client : public ::Client {
 
     void HandleWound(const uint64_t transaction_id);
 
-    void RealTimeBarrier(const rss::Session &session);
+    void RealTimeBarrier(const rss::Session &session, rss::continuation_func_t continuation);
 
     // choose coordinator from participants
     void CalculateCoordinatorChoices();
@@ -262,6 +260,7 @@ class Client : public ::Client {
 
     std::unordered_map<uint64_t, StrongSession> sessions_;
     std::unordered_map<uint64_t, StrongSession &> sessions_by_transaction_id_;
+    std::unordered_map<uint64_t, Timestamp> tmins_;
 
     const strongstore::NetworkConfiguration &net_config_;
     const std::string client_region_;

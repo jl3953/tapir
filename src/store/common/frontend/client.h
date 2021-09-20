@@ -65,9 +65,7 @@ class Client {
     virtual Session &ContinueSession(rss::Session &session) = 0;
     virtual rss::Session EndSession(Session &session) = 0;
 
-    // TODO: Combine into single Begin
-    virtual void BeginRW(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) = 0;
-    virtual void BeginRO(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) = 0;
+    virtual void Begin(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) = 0;
 
     virtual void Retry(Session &session, begin_callback bcb,
                        begin_timeout_callback btcb, uint32_t timeout) = 0;

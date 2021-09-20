@@ -15,11 +15,11 @@ void UnregisterRSSService(const std::string &name) {
     RSS_REGISTRY.UnregisterRSSService(name);
 }
 
-void StartTransaction(Session &s, const std::string &name) {
-    s.StartTransaction(name);
+void StartTransaction(const std::string &name, Session &s, continuation_func_t continuation) {
+    s.StartTransaction(name, continuation);
 }
 
-void EndTransaction(Session &s, const std::string &name) {
+void EndTransaction(const std::string &name, Session &s) {
     s.EndTransaction(name);
 }
 
@@ -44,30 +44,8 @@ Session::~Session() {
     std::cerr << "last_service: " << last_service_ << ", current_state: " << static_cast<int>(current_state_) << std::endl;
 }
 
-void Session::UpdateLastService(const std::string &name) {
-    if (!last_service_.empty() && last_service_ != name) {
-        auto last = RSS_REGISTRY.FindService(last_service_);
-
-        switch (current_state_) {
-            case NONE:
-                break;
-            case EXECUTED:
-                last.invoke_barrier(*this);
-                break;
-            case EXECUTING:
-                std::cerr << "last_service: " << last_service_ << ", current_state: " << static_cast<int>(current_state_) << std::endl;
-                std::cerr << "Invalid state transition: Still executing transaction at previous service" << std::endl;
-                throw new std::runtime_error("Invalid state transition: Still executing transaction at previous service");
-            default:
-                throw new std::runtime_error("Unexpected state: " + std::to_string(current_state_));
-        }
-    }
-
-    last_service_ = name;
-}
-
-void Session::StartTransaction(const std::string &name) {
-    UpdateLastService(name);
+void Session::StartTransaction(const std::string &name, continuation_func_t continuation) {
+    bool invoke_barrier = (!last_service_.empty() && last_service_ != name && current_state_ == EXECUTED);
 
     switch (current_state_) {
         case NONE:
@@ -80,6 +58,15 @@ void Session::StartTransaction(const std::string &name) {
             throw new std::runtime_error("Invalid state transition: Already executing transaction");
         default:
             throw new std::runtime_error("Unexpected state: " + std::to_string(current_state_));
+    }
+
+    if (invoke_barrier) {
+        auto last = RSS_REGISTRY.FindService(last_service_);
+        last_service_ = name;
+        last.invoke_barrier(*this, continuation);
+    } else {
+        last_service_ = name;
+        continuation();
     }
 }
 
