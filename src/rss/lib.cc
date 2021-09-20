@@ -15,20 +15,12 @@ void UnregisterRSSService(const std::string &name) {
     RSS_REGISTRY.UnregisterRSSService(name);
 }
 
-void StartRWTransaction(Session &s, const std::string &name) {
-    s.StartRWTransaction(name);
+void StartTransaction(Session &s, const std::string &name) {
+    s.StartTransaction(name);
 }
 
-void EndRWTransaction(Session &s, const std::string &name) {
-    s.EndRWTransaction(name);
-}
-
-void StartROTransaction(Session &s, const std::string &name) {
-    s.StartROTransaction(name);
-}
-
-void EndROTransaction(Session &s, const std::string &name) {
-    s.EndROTransaction(name);
+void EndTransaction(Session &s, const std::string &name) {
+    s.EndTransaction(name);
 }
 
 std::atomic<std::uint64_t> Session::next_id_{0};
@@ -38,8 +30,11 @@ Session::Session() : id_{next_id_++}, last_service_{""}, current_state_{NONE} {
     std::cerr << "last_service: " << last_service_ << ", current_state: " << static_cast<int>(current_state_) << std::endl;
 }
 
-Session::Session(const Session &s)
-    : id_{s.id_}, last_service_{s.last_service_}, current_state_{s.current_state_} {
+Session::Session(Session &&o)
+    : id_{o.id_}, last_service_{o.last_service_}, current_state_{o.current_state_} {
+    o.id_ = static_cast<uint64_t>(-1);
+    o.last_service_ = "";
+    o.current_state_ = NONE;
     std::cerr << "Session continued: " + std::to_string(id_) << std::endl;
     std::cerr << "last_service: " << last_service_ << ", current_state: " << static_cast<int>(current_state_) << std::endl;
 }
@@ -54,14 +49,12 @@ void Session::UpdateLastService(const std::string &name) {
         auto last = RSS_REGISTRY.FindService(last_service_);
 
         switch (current_state_) {
-            case EXECUTED_RO:
-                last.invoke_barrier();
-                break;
             case NONE:
-            case EXECUTED_RW:
                 break;
-            case EXECUTING_RW:
-            case EXECUTING_RO:
+            case EXECUTED:
+                last.invoke_barrier(*this);
+                break;
+            case EXECUTING:
                 std::cerr << "last_service: " << last_service_ << ", current_state: " << static_cast<int>(current_state_) << std::endl;
                 std::cerr << "Invalid state transition: Still executing transaction at previous service" << std::endl;
                 throw new std::runtime_error("Invalid state transition: Still executing transaction at previous service");
@@ -73,17 +66,15 @@ void Session::UpdateLastService(const std::string &name) {
     last_service_ = name;
 }
 
-void Session::StartRWTransaction(const std::string &name) {
+void Session::StartTransaction(const std::string &name) {
     UpdateLastService(name);
 
     switch (current_state_) {
         case NONE:
-        case EXECUTED_RW:
-        case EXECUTED_RO:
-            current_state_ = EXECUTING_RW;
+        case EXECUTED:
+            current_state_ = EXECUTING;
             break;
-        case EXECUTING_RW:
-        case EXECUTING_RO:
+        case EXECUTING:
             std::cerr << "Invalid state transition: Already executing transaction" << std::endl;
             std::cerr << "last_service: " << last_service_ << ", current_state: " << static_cast<int>(current_state_) << std::endl;
             throw new std::runtime_error("Invalid state transition: Already executing transaction");
@@ -92,54 +83,16 @@ void Session::StartRWTransaction(const std::string &name) {
     }
 }
 
-void Session::EndRWTransaction(const std::string &name) {
+void Session::EndTransaction(const std::string &name) {
     switch (current_state_) {
-        case EXECUTING_RW:
-            current_state_ = EXECUTED_RW;
+        case EXECUTING:
+            current_state_ = EXECUTED;
             break;
         case NONE:
-        case EXECUTING_RO:
-        case EXECUTED_RW:
-        case EXECUTED_RO:
-            std::cerr << "Invalid state transition: Not executing RW transaction" << std::endl;
+        case EXECUTED:
+            std::cerr << "Invalid state transition: Not executing transaction" << std::endl;
             std::cerr << "last_service: " << last_service_ << ", current_state: " << static_cast<int>(current_state_) << std::endl;
-            throw new std::runtime_error("Invalid state transition: Not executing RW transaction");
-        default:
-            throw new std::runtime_error("Unexpected state: " + std::to_string(current_state_));
-    }
-}
-
-void Session::StartROTransaction(const std::string &name) {
-    UpdateLastService(name);
-
-    switch (current_state_) {
-        case NONE:
-        case EXECUTED_RW:
-        case EXECUTED_RO:
-            current_state_ = EXECUTING_RO;
-            break;
-        case EXECUTING_RW:
-        case EXECUTING_RO:
-            std::cerr << "Invalid state transition: Already executing transaction" << std::endl;
-            std::cerr << "last_service: " << last_service_ << ", current_state: " << static_cast<int>(current_state_) << std::endl;
-            throw new std::runtime_error("Invalid state transition: Already executing transaction");
-        default:
-            throw new std::runtime_error("Unexpected state: " + std::to_string(current_state_));
-    }
-}
-
-void Session::EndROTransaction(const std::string &name) {
-    switch (current_state_) {
-        case EXECUTING_RO:
-            current_state_ = EXECUTED_RO;
-            break;
-        case NONE:
-        case EXECUTING_RW:
-        case EXECUTED_RW:
-        case EXECUTED_RO:
-            std::cerr << "Invalid state transition: Not executing RO transaction" << std::endl;
-            std::cerr << "last_service: " << last_service_ << ", current_state: " << static_cast<int>(current_state_) << std::endl;
-            throw new std::runtime_error("Invalid state transition: Not executing RO transaction");
+            throw new std::runtime_error("Invalid state transition: Not executing transaction");
         default:
             throw new std::runtime_error("Unexpected state: " + std::to_string(current_state_));
     }

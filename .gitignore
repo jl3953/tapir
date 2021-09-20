@@ -12,9 +12,6 @@ src/store/benchmark/benchClient
 src/store/benchmark/retwisClient
 src/store/benchmark/terminalClient
 src/store/strongstore/server
-src/store/tapirstore/server
-src/store/weakstore/server
-src/timeserver/timeserver
 
 src/lib/tests/configuration-test
 src/lib/tests/simtransport-test

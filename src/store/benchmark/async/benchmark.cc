@@ -29,11 +29,9 @@
 #include "store/common/truetime.h"
 #include "store/strongstore/client.h"
 #include "store/strongstore/networkconfig.h"
-#include "store/tapirstore/client.h"
 
 enum protomode_t {
     PROTO_UNKNOWN,
-    PROTO_TAPIR,
     PROTO_STRONG,
 };
 
@@ -62,10 +60,6 @@ DEFINE_uint64(num_shards, 1, "number of shards in the system");
 DEFINE_bool(ping_replicas, false, "determine latency to replicas via pings");
 DEFINE_string(net_config_path, "", "path to network configuration file");
 
-DEFINE_bool(tapir_sync_commit, true,
-            "wait until commit phase completes before"
-            " sending additional transactions (for TAPIR)");
-
 DEFINE_bool(debug_stats, false, "record stats related to debugging");
 
 const std::string trans_args[] = {"udp", "tcp"};
@@ -87,18 +81,9 @@ DEFINE_string(trans_protocol, trans_args[0],
               " passing messages");
 DEFINE_validator(trans_protocol, &ValidateTransMode);
 
-const std::string protocol_args[] = {"txn-l", "txn-s", "qw", "occ",
-                                     "lock", "span-occ", "span-lock", "mvtso"};
-const protomode_t protomodes[]{PROTO_TAPIR, PROTO_TAPIR,
-                               PROTO_STRONG, PROTO_STRONG, PROTO_STRONG,
-                               PROTO_STRONG, PROTO_STRONG};
-const strongstore::Mode strongmodes[]{
-    strongstore::Mode::MODE_UNKNOWN, strongstore::Mode::MODE_UNKNOWN,
-    strongstore::Mode::MODE_UNKNOWN, strongstore::Mode::MODE_OCC,
-    strongstore::Mode::MODE_LOCK, strongstore::Mode::MODE_SPAN_OCC,
-    strongstore::Mode::MODE_SPAN_LOCK, strongstore::Mode::MODE_MVTSO,
-    strongstore::Mode::MODE_UNKNOWN, strongstore::Mode::MODE_UNKNOWN,
-    strongstore::Mode::MODE_UNKNOWN, strongstore::Mode::MODE_UNKNOWN};
+const std::string protocol_args[] = {"span-lock"};
+const protomode_t protomodes[]{PROTO_STRONG};
+const strongstore::Mode strongmodes[]{strongstore::Mode::MODE_SPAN_LOCK};
 static bool ValidateProtocolMode(const char *flagname,
                                  const std::string &value) {
     int n = sizeof(protocol_args);
@@ -614,14 +599,6 @@ int main(int argc, char **argv) {
     for (std::size_t i = 0; i < n_instances; ++i) {
         Client *client = nullptr;
         switch (mode) {
-            case PROTO_TAPIR: {
-                ASSERT(replica_configs.size() == 1);
-                client = new tapirstore::Client(
-                    &replica_configs[0], FLAGS_client_id, FLAGS_num_shards,
-                    FLAGS_closest_replica, tport, part, FLAGS_ping_replicas,
-                    FLAGS_tapir_sync_commit, tt);
-                break;
-            }
             case PROTO_STRONG: {
                 auto &shard_config = replica_configs[i];
                 auto &net_config = net_configs[i];

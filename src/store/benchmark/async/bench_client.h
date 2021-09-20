@@ -39,7 +39,7 @@ class BenchmarkClient {
     virtual ~BenchmarkClient();
 
     void Start(bench_done_callback bdcb);
-    void OnReply(uint64_t transaction_id, int result, bool erase_et = true);
+    void OnReply(uint64_t transaction_id, int result, bool erase_session);
 
     void SendNext();
     void ExecuteCallback(uint64_t transaction_id, transaction_status_t result);
@@ -67,33 +67,42 @@ class BenchmarkClient {
     Transport &transport_;
 
    private:
-    class ExecutingTransaction {
+    class SessionState {
        public:
-        ExecutingTransaction(uint64_t id, AsyncTransaction *transaction, std::unique_ptr<Context> ctx, execute_callback ecb, std::size_t client_index, uint64_t n_attempts)
-            : lat_{}, id_{id}, transaction_{transaction}, ctx_{std::move(ctx)}, ecb_{ecb}, n_attempts_{n_attempts}, op_index_{1}, current_client_index_{client_index}, current_client_txn_count_{0} {}
+        SessionState(Session &session, AsyncTransaction *transaction, execute_callback ecb, std::size_t client_index)
+            : lat_{}, session_{session}, transaction_{transaction}, ecb_{ecb}, n_attempts_{1}, op_index_{1}, current_client_index_{client_index}, current_client_txn_count_{0} {}
 
-        uint64_t id() const { return id_; }
+        Session &session() { return session_; }
         AsyncTransaction *transaction() const { return transaction_; }
-        std::unique_ptr<Context> &ctx() { return ctx_; }
         execute_callback ecb() const { return ecb_; }
 
         Latency_Frame_t *lat() { return &lat_; }
 
         uint64_t n_attempts() const { return n_attempts_; }
-        void incr_attempts() { n_attempts_++; }
 
         uint64_t op_index() const { return op_index_; }
-        void reset_outstanding_ops() { op_index_ = 0; }
         void incr_op_index() { op_index_++; }
 
         std::size_t current_client_index() const { return current_client_index_; }
-        void set_client_index(std::size_t i) { current_client_index_ = i; }
+
+        void start_transaction(Session &session, AsyncTransaction *transaction, execute_callback ecb, std::size_t client_index) {
+            session_ = session;
+            transaction_ = transaction;
+            ecb_ = ecb;
+            current_client_index_ = client_index;
+            n_attempts_ = 1;
+            op_index_ = 1;
+        }
+
+        void retry_transaction() {
+            n_attempts_++;
+            op_index_ = 1;
+        }
 
        private:
         Latency_Frame_t lat_;
-        uint64_t id_;
+        std::reference_wrapper<Session> session_;
         AsyncTransaction *transaction_;
-        std::unique_ptr<Context> ctx_;
         execute_callback ecb_;
         uint64_t n_attempts_;
         std::size_t op_index_;
@@ -101,28 +110,25 @@ class BenchmarkClient {
         std::size_t current_client_txn_count_;
     };
 
-    void ExecuteAbort(const uint64_t transaction_id, transaction_status_t status);
+    void ExecuteAbort(const uint64_t session_id, transaction_status_t status);
 
-    void SendNextInSession(std::unique_ptr<Context> &ctx);
+    void SendNextInSession(const uint64_t session_id);
 
-    void BeginCallback(uint64_t transaction_id, AsyncTransaction *transaction,
-                       std::size_t client_index, uint64_t n_attempts, std::unique_ptr<Context> ctx);
+    void ExecuteNextOperation(const uint64_t session_id);
 
-    void ExecuteNextOperation(const uint64_t transaction_id);
-
-    void GetCallback(const uint64_t transaction_id,
+    void GetCallback(const uint64_t session_id,
                      int status, const std::string &key, const std::string &val, Timestamp ts);
-    void GetTimeout(const uint64_t transaction_id,
+    void GetTimeout(const uint64_t session_id,
                     int status, const std::string &key);
 
-    void PutCallback(const uint64_t transaction_id,
+    void PutCallback(const uint64_t session_id,
                      int status, const std::string &key, const std::string &val);
-    void PutTimeout(const uint64_t transaction_id,
+    void PutTimeout(const uint64_t session_id,
                     int status, const std::string &key, const std::string &val);
 
-    void CommitCallback(const uint64_t transaction_id, transaction_status_t status);
+    void CommitCallback(const uint64_t session_id, transaction_status_t status);
     void CommitTimeout();
-    void AbortCallback(const uint64_t transaction_id, transaction_status_t status);
+    void AbortCallback(const uint64_t session_id, transaction_status_t status);
     void AbortTimeout();
 
     void Finish();
@@ -131,8 +137,7 @@ class BenchmarkClient {
     void Cleanup();
     void CleanupContinue();
 
-    std::unordered_map<uint64_t, ExecutingTransaction> executing_transactions_;
-    uint64_t next_transaction_id_;
+    std::unordered_map<uint64_t, SessionState> session_states_;
 
     const std::vector<Client *> &clients_;
 

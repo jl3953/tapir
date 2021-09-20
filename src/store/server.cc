@@ -1,34 +1,3 @@
-// -*- mode: c++; c-file-style: "k&r"; c-basic-offset: 4 -*-
-/***********************************************************************
- *
- * store/tapirstore/server.cc:
- *   Implementation of a single transactional key-value server.
- *
- * Copyright 2015 Irene Zhang <iyzhang@cs.washington.edu>
- *                Naveen Kr. Sharma <naveenks@cs.washington.edu>
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use, copy,
- * modify, merge, publish, distribute, sublicense, and/or sell copies
- * of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
- * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- *
- **********************************************************************/
-
 #include "store/server.h"
 
 #include <gflags/gflags.h>
@@ -42,10 +11,8 @@
 #include "lib/udptransport.h"
 #include "store/common/partitioner.h"
 #include "store/strongstore/server.h"
-#include "store/tapirstore/server.h"
 
 enum protocol_t { PROTO_UNKNOWN,
-                  PROTO_TAPIR,
                   PROTO_STRONG };
 
 enum transmode_t {
@@ -68,11 +35,9 @@ DEFINE_uint64(num_shards, 1, "number of shards in the system");
 DEFINE_bool(debug_stats, false, "record stats related to debugging");
 
 const std::string protocol_args[] = {
-    "tapir",
     "strong",
 };
 const protocol_t protos[]{
-    PROTO_TAPIR,
     PROTO_STRONG,
 };
 static bool ValidateProtocol(const char *flagname, const std::string &value) {
@@ -134,11 +99,6 @@ DEFINE_validator(partitioner, &ValidatePartitioner);
  * TPCC settings.
  */
 DEFINE_int32(tpcc_num_warehouses, 1, "number of warehouses (for tpcc)");
-
-/**
- * TAPIR settings.
- */
-DEFINE_bool(tapir_linearizable, true, "run TAPIR in linearizable mode");
 
 /**
  * StrongStore settings.
@@ -307,10 +267,6 @@ int main(int argc, char **argv) {
     }
 
     switch (proto) {
-        case PROTO_TAPIR: {
-            server = new tapirstore::Server(FLAGS_tapir_linearizable);
-            break;
-        }
         case PROTO_STRONG: {
             server = new strongstore::Server(consistency, shard_config,
                                              replica_config, FLAGS_server_id,
@@ -409,13 +365,6 @@ int main(int argc, char **argv) {
     Notice("Done loading server.");
 
     switch (proto) {
-        case PROTO_TAPIR: {
-            replica = new replication::ir::IRReplica(
-                replica_config, FLAGS_group_idx, FLAGS_replica_idx, tport,
-                dynamic_cast<replication::ir::IRAppReplica *>(server));
-            break;
-        }
-
         case PROTO_STRONG: {
             replica = new replication::vr::VRReplica(
                 replica_config, FLAGS_group_idx, FLAGS_replica_idx, tport, 1,

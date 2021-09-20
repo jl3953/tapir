@@ -8,47 +8,37 @@
 
 namespace rss {
 
-using barrier_func_t = std::function<void()>;
-
 class Session;
+
+using barrier_func_t = std::function<void(const Session &)>;
 
 void RegisterRSSService(const std::string &name, barrier_func_t bf);
 void UnregisterRSSService(const std::string &name);
 
-void StartRWTransaction(Session &s, const std::string &name);
-void EndRWTransaction(Session &s, const std::string &name);
-
-void StartROTransaction(Session &s, const std::string &name);
-void EndROTransaction(Session &s, const std::string &name);
+void StartTransaction(Session &s, const std::string &name);
+void EndTransaction(Session &s, const std::string &name);
 
 class Session {
    public:
     Session();
-    ~Session();
+    Session(Session &&other);
 
-   protected:
-    Session(const Session &s);
+    ~Session();
 
     uint64_t id() const { return id_; }
 
-    void StartRWTransaction(const std::string &name);
-    void EndRWTransaction(const std::string &name);
+   protected:
+    void StartTransaction(const std::string &name);
+    void EndTransaction(const std::string &name);
 
-    void StartROTransaction(const std::string &name);
-    void EndROTransaction(const std::string &name);
-
-    friend void StartRWTransaction(Session &s, const std::string &name);
-    friend void EndRWTransaction(Session &s, const std::string &name);
-    friend void StartROTransaction(Session &s, const std::string &name);
-    friend void EndROTransaction(Session &s, const std::string &name);
+    friend void StartTransaction(Session &s, const std::string &name);
+    friend void EndTransaction(Session &s, const std::string &name);
 
    private:
     enum RSSServiceState {
         NONE = 0,
-        EXECUTING_RW,
-        EXECUTING_RO,
-        EXECUTED_RW,
-        EXECUTED_RO
+        EXECUTING,
+        EXECUTED
     };
 
     void UpdateLastService(const std::string &name);
@@ -71,7 +61,7 @@ class RSSRegistry {
         RSSService(std::string name, barrier_func_t bf);
         ~RSSService();
 
-        void invoke_barrier() const { bf_(); }
+        void invoke_barrier(const Session &session) const { bf_(session); }
 
        private:
         std::string name_;

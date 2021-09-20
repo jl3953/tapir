@@ -22,7 +22,8 @@ Client::Client(Consistency consistency, const NetworkConfiguration &net_config,
                double nb_time_alpha)
     : coord_choices_{},
       min_lats_{},
-      context_states_{},
+      sessions_{},
+      sessions_by_transaction_id_{},
       net_config_{net_config},
       client_region_{client_region},
       service_name_{"spanner-" + std::to_string(client_id) + "-" + std::to_string(std::rand())},
@@ -55,9 +56,7 @@ Client::Client(Consistency consistency, const NetworkConfiguration &net_config,
 
     CalculateCoordinatorChoices();
 
-    rss::RegisterRSSService(service_name_, []() {
-        Debug("invoked real-time barrier!");
-    });
+    rss::RegisterRSSService(service_name_, std::bind(&Client::RealTimeBarrier, this, std::placeholders::_1));
 }
 
 Client::~Client() {
@@ -72,7 +71,8 @@ Client::~Client() {
         delete s;
     }
 
-    Debug("context_states_.size(): %lu", context_states_.size());
+    Debug("sessions_.size(): %lu", sessions_.size());
+    Debug("sessions_by_transaction_id_.size(): %lu", sessions_by_transaction_id_.size());
 }
 
 void Client::CalculateCoordinatorChoices() {
@@ -181,12 +181,8 @@ void Client::CalculateCoordinatorChoices() {
     }
 }
 
-int Client::ChooseCoordinator(const uint64_t transaction_id) {
-    auto search = context_states_.find(transaction_id);
-    ASSERT(search != context_states_.end());
-    auto &state = search->second;
-
-    auto &participants = state->participants();
+int Client::ChooseCoordinator(StrongSession &session) {
+    auto &participants = session.participants();
     ASSERT(participants.size() != 0);
 
     std::bitset<MAX_SHARDS> shards;
@@ -200,12 +196,8 @@ int Client::ChooseCoordinator(const uint64_t transaction_id) {
     return coord_choices_[shards];
 }
 
-Timestamp Client::ChooseNonBlockTimestamp(const uint64_t transaction_id) {
-    auto search = context_states_.find(transaction_id);
-    ASSERT(search != context_states_.end());
-    auto &state = search->second;
-
-    auto &participants = state->participants();
+Timestamp Client::ChooseNonBlockTimestamp(StrongSession &session) {
+    auto &participants = session.participants();
     ASSERT(participants.size() != 0);
 
     std::bitset<MAX_SHARDS> shards;
@@ -219,45 +211,45 @@ Timestamp Client::ChooseNonBlockTimestamp(const uint64_t transaction_id) {
     uint16_t l = min_lats_[shards];
     uint64_t lat = static_cast<uint64_t>(nb_time_alpha_ * l * 1000);
     auto now = tt_.Now();
-    Debug("[%lu] lat: %lu, ts: %lu", transaction_id, lat, now.earliest() + lat);
+    Debug("[%lu] lat: %lu, ts: %lu", session.id(), lat, now.earliest() + lat);
     return {now.earliest() + lat, client_id_};
 }
 
 void Client::HandleWound(const uint64_t transaction_id) {
     Debug("[%lu] Handling wound", transaction_id);
 
-    auto search = context_states_.find(transaction_id);
-    if (search == context_states_.end()) {
+    auto search = sessions_by_transaction_id_.find(transaction_id);
+    if (search == sessions_by_transaction_id_.end()) {
         Debug("[%lu] Transaction already finished", transaction_id);
         return;
     }
 
-    auto &state = search->second;
+    auto &session = search->second;
     int p = -1;
     int coordinator = -1;
-    Debug("[%lu] client state: %d", transaction_id, state->state());
-    switch (state->state()) {
-        case ContextState::EXECUTING:
-            state->set_needs_abort();
+    Debug("[%lu] client state: %d", transaction_id, session.state());
+    switch (session.state()) {
+        case StrongSession::EXECUTING:
+            session.set_needs_abort();
             break;
-        case ContextState::GETTING:
-            p = state->current_participant();
+        case StrongSession::GETTING:
+            p = session.current_participant();
             sclients_[p]->AbortGet(transaction_id);
             break;
-        case ContextState::PUTTING:
-            p = state->current_participant();
+        case StrongSession::PUTTING:
+            p = session.current_participant();
             sclients_[p]->AbortPut(transaction_id);
             break;
-        case ContextState::COMMITTING:
+        case StrongSession::COMMITTING:
             Debug("[%lu] Forwarding wound to coordinator", transaction_id);
-            coordinator = ChooseCoordinator(transaction_id);
+            coordinator = ChooseCoordinator(session);
             sclients_[coordinator]->Wound(transaction_id);
             break;
-        case ContextState::ABORTING:
+        case StrongSession::ABORTING:
             Debug("[%lu] Already aborted", transaction_id);
             break;
         default:
-            Panic("Unexpected state: %d", state->state());
+            Panic("Unexpected state: %d", session.state());
     }
 }
 
@@ -266,127 +258,149 @@ void Client::ForceAbort(const uint64_t transaction_id) {
     HandleWound(transaction_id);
 }
 
+void Client::RealTimeBarrier(const rss::Session &session) {
+    Debug("[%lu] invoked real-time barrier at client %s!", session.id(), service_name_.c_str());
+}
+
+Session &Client::BeginSession() {
+    StrongSession session{};
+    auto sid = session.id();
+
+    Debug("BeginSession1");
+
+    sessions_.emplace(sid, std::move(session));
+
+    Debug("BeginSession2");
+
+    return sessions_.find(sid)->second;
+}
+
+Session &Client::ContinueSession(rss::Session &rss_session) {
+    auto sid = rss_session.id();
+
+    Debug("ContinueSession1");
+
+    sessions_.emplace(sid, StrongSession{std::move(rss_session)});
+
+    Debug("ContinueSession2");
+
+    return sessions_.find(sid)->second;
+}
+
+rss::Session Client::EndSession(Session &session) {
+    auto search = sessions_.find(session.id());
+    ASSERT(search != sessions_.end());
+
+    Debug("EndSession1");
+
+    rss::Session rss_session = std::move(session.rss_session());
+
+    Debug("EndSession2");
+
+    sessions_.erase(search);
+
+    Debug("EndSession3");
+
+    return std::move(rss_session);
+}
+
 /* Begins a transaction. All subsequent operations before a commit() or
  * abort() are part of this transaction.
  */
-std::unique_ptr<Context> Client::Begin() {
+void Client::Begin(Session &s) {
+    auto &session = static_cast<StrongSession &>(s);
+
+    if (session.transaction_id() != static_cast<uint64_t>(-1)) {
+        sessions_by_transaction_id_.erase(session.transaction_id());
+    }
+
     auto tid = next_transaction_id_++;
 
     Debug("[%lu] Begin", tid);
 
     Timestamp start_ts{tt_.Now().latest(), client_id_};
 
-    context_states_.emplace(tid, std::make_unique<ContextState>());
+    session.start_transaction(tid, start_ts);
+    sessions_by_transaction_id_.emplace(tid, session);
 
     for (uint64_t i = 0; i < nshards_; i++) {
         sclients_[i]->Begin(tid, start_ts);
     }
-
-    return std::make_unique<Context>(tid, start_ts);
 }
 
-void Client::BeginRW(begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) {
-    std::unique_ptr<Context> ctx = Begin();
+void Client::BeginRW(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) {
+    rss::StartTransaction(session.rss_session(), service_name_);
 
-    rss::StartRWTransaction(*ctx, service_name_);
+    Begin(session);
 
-    bcb(std::move(ctx));
+    bcb();
 }
 
-void Client::BeginRO(begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) {
-    std::unique_ptr<Context> ctx = Begin();
+void Client::BeginRO(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) {
+    rss::StartTransaction(session.rss_session(), service_name_);
 
-    rss::StartROTransaction(*ctx, service_name_);
+    Begin(session);
 
-    bcb(std::move(ctx));
-}
-
-std::unique_ptr<Context> Client::Begin(std::unique_ptr<Context> &ctx) {
-    auto tid = next_transaction_id_++;
-
-    Debug("[%lu] Begin", tid);
-
-    Timestamp start_ts{tt_.Now().latest(), client_id_};
-
-    context_states_.emplace(tid, std::make_unique<ContextState>());
-
-    for (uint64_t i = 0; i < nshards_; i++) {
-        sclients_[i]->Begin(tid, start_ts);
-    }
-
-    return std::make_unique<Context>(tid, *ctx);
-}
-
-void Client::BeginRW(std::unique_ptr<Context> &ctx, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) {
-    std::unique_ptr<Context> nctx = Begin(ctx);
-
-    rss::StartRWTransaction(*nctx, service_name_);
-
-    bcb(std::move(nctx));
-}
-
-void Client::BeginRO(std::unique_ptr<Context> &ctx, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) {
-    std::unique_ptr<Context> nctx = Begin(ctx);
-
-    rss::StartROTransaction(*nctx, service_name_);
-
-    bcb(std::move(nctx));
+    bcb();
 }
 
 /* Begins a transaction, retrying the transaction indicated by ctx.
  */
-void Client::Retry(std::unique_ptr<Context> &ctx, begin_callback bcb,
+void Client::Retry(Session &s, begin_callback bcb,
                    begin_timeout_callback btcb, uint32_t timeout) {
+    auto &session = static_cast<StrongSession &>(s);
+
+    if (session.transaction_id() != static_cast<uint64_t>(-1)) {
+        sessions_by_transaction_id_.erase(session.transaction_id());
+    }
+
+    rss::StartTransaction(session.rss_session(), service_name_);
+
     auto tid = next_transaction_id_++;
-    auto &start_ts = ctx->start_ts();
 
-    context_states_.emplace(tid, std::make_unique<ContextState>());
+    session.retry_transaction(tid);
+    sessions_by_transaction_id_.emplace(tid, session);
 
+    auto &start_ts = session.start_ts();
     for (uint64_t i = 0; i < nshards_; i++) {
         sclients_[i]->Begin(tid, start_ts);
     }
 
-    std::unique_ptr<Context> nctx = std::make_unique<Context>(tid, *ctx);
-
-    rss::StartRWTransaction(*nctx, service_name_);
-
-    bcb(std::move(nctx));
+    bcb();
 }
 
 /* Returns the value corresponding to the supplied key. */
-void Client::Get(std::unique_ptr<Context> &ctx, const std::string &key, get_callback gcb,
+void Client::Get(Session &s, const std::string &key, get_callback gcb,
                  get_timeout_callback gtcb, uint32_t timeout) {
-    auto tid = ctx->transaction_id();
+    auto &session = static_cast<StrongSession &>(s);
+
+    auto tid = session.transaction_id();
 
     Debug("GET [%lu : %s]", tid, key.c_str());
 
-    auto search = context_states_.find(tid);
-    ASSERT(search != context_states_.end());
-
-    auto &state = search->second;
-    if (state->needs_aborts()) {
+    if (session.needs_aborts()) {
         Debug("[%lu] Need to abort", tid);
         gcb(REPLY_FAIL, "", "", Timestamp());
         return;
     }
 
-    ASSERT(state->executing());
+    ASSERT(session.executing());
 
     // Contact the appropriate shard to get the value.
-    int i = (*part_)(key, nshards_, -1, state->participants());
+    int i = (*part_)(key, nshards_, -1, session.participants());
 
-    state->set_getting(i);
+    session.set_getting(i);
 
     // Add this shard to set of participants
-    state->add_participant(i);
+    session.add_participant(i);
 
-    auto gcb1 = [gcb, state = std::ref(state)](int s, const std::string &k, const std::string &v, Timestamp ts) {
-        state.get()->set_executing();
+    auto gcb1 = [gcb, session = std::ref(session)](int s, const std::string &k, const std::string &v, Timestamp ts) {
+        session.get().set_executing();
         gcb(s, k, v, ts);
     };
 
-    auto gtcb1 = [gtcb, state = std::ref(state)](int s, const std::string &k) {
-        state.get()->set_executing();
+    auto gtcb1 = [gtcb, session = std::ref(session)](int s, const std::string &k) {
+        session.get().set_executing();
         gtcb(s, k);
     };
 
@@ -395,39 +409,37 @@ void Client::Get(std::unique_ptr<Context> &ctx, const std::string &key, get_call
 }
 
 /* Returns the value corresponding to the supplied key. */
-void Client::GetForUpdate(std::unique_ptr<Context> &ctx, const std::string &key, get_callback gcb,
+void Client::GetForUpdate(Session &s, const std::string &key, get_callback gcb,
                           get_timeout_callback gtcb, uint32_t timeout) {
-    auto tid = ctx->transaction_id();
+    auto &session = static_cast<StrongSession &>(s);
+
+    auto tid = session.transaction_id();
 
     Debug("GET FOR UPDATE [%lu : %s]", tid, key.c_str());
 
-    auto search = context_states_.find(tid);
-    ASSERT(search != context_states_.end());
-
-    auto &state = search->second;
-    if (state->needs_aborts()) {
+    if (session.needs_aborts()) {
         Debug("[%lu] Need to abort", tid);
         gcb(REPLY_FAIL, "", "", Timestamp());
         return;
     }
 
-    ASSERT(state->executing());
+    ASSERT(session.executing());
 
     // Contact the appropriate shard to get the value.
-    int i = (*part_)(key, nshards_, -1, state->participants());
+    int i = (*part_)(key, nshards_, -1, session.participants());
 
-    state->set_getting(i);
+    session.set_getting(i);
 
     // Add this shard to set of participants
-    state->add_participant(i);
+    session.add_participant(i);
 
-    auto gcb1 = [gcb, state = std::ref(state)](int s, const std::string &k, const std::string &v, Timestamp ts) {
-        state.get()->set_executing();
+    auto gcb1 = [gcb, session = std::ref(session)](int s, const std::string &k, const std::string &v, Timestamp ts) {
+        session.get().set_executing();
         gcb(s, k, v, ts);
     };
 
-    auto gtcb1 = [gtcb, state = std::ref(state)](int s, const std::string &k) {
-        state.get()->set_executing();
+    auto gtcb1 = [gtcb, session = std::ref(session)](int s, const std::string &k) {
+        session.get().set_executing();
         gtcb(s, k);
     };
 
@@ -436,40 +448,37 @@ void Client::GetForUpdate(std::unique_ptr<Context> &ctx, const std::string &key,
 }
 
 /* Sets the value corresponding to the supplied key. */
-void Client::Put(std::unique_ptr<Context> &ctx, const std::string &key, const std::string &value,
-                 put_callback pcb, put_timeout_callback ptcb,
-                 uint32_t timeout) {
-    auto tid = ctx->transaction_id();
+void Client::Put(Session &s, const std::string &key, const std::string &value,
+                 put_callback pcb, put_timeout_callback ptcb, uint32_t timeout) {
+    auto &session = static_cast<StrongSession &>(s);
+
+    auto tid = session.transaction_id();
 
     Debug("PUT [%lu : %s]", tid, key.c_str());
 
-    auto search = context_states_.find(tid);
-    ASSERT(search != context_states_.end());
-
-    auto &state = search->second;
-    if (state->needs_aborts()) {
+    if (session.needs_aborts()) {
         Debug("[%lu] Need to abort", tid);
         pcb(REPLY_FAIL, "", "");
         return;
     }
 
-    ASSERT(state->executing());
+    ASSERT(session.executing());
 
     // Contact the appropriate shard to set the value.
-    int i = (*part_)(key, nshards_, -1, state->participants());
+    int i = (*part_)(key, nshards_, -1, session.participants());
 
-    state->set_putting(i);
+    session.set_putting(i);
 
     // Add this shard to set of participants
-    state->add_participant(i);
+    session.add_participant(i);
 
-    auto pcb1 = [pcb, state = std::ref(state)](int s, const std::string &k, const std::string &v) {
-        state.get()->set_executing();
+    auto pcb1 = [pcb, session = std::ref(session)](int s, const std::string &k, const std::string &v) {
+        session.get().set_executing();
         pcb(s, k, v);
     };
 
-    auto ptcb1 = [ptcb, state = std::ref(state)](int s, const std::string &k, const std::string &v) {
-        state.get()->set_executing();
+    auto ptcb1 = [ptcb, session = std::ref(session)](int s, const std::string &k, const std::string &v) {
+        session.get().set_executing();
         ptcb(s, k, v);
     };
 
@@ -477,25 +486,23 @@ void Client::Put(std::unique_ptr<Context> &ctx, const std::string &key, const st
 }
 
 /* Attempts to commit the ongoing transaction. */
-void Client::Commit(std::unique_ptr<Context> &ctx, commit_callback ccb, commit_timeout_callback ctcb, uint32_t timeout) {
-    auto tid = ctx->transaction_id();
+void Client::Commit(Session &s, commit_callback ccb, commit_timeout_callback ctcb, uint32_t timeout) {
+    auto &session = static_cast<StrongSession &>(s);
+
+    auto tid = session.transaction_id();
 
     Debug("[%lu] COMMIT", tid);
 
-    auto search = context_states_.find(tid);
-    ASSERT(search != context_states_.end());
-
-    auto &state = search->second;
-    if (state->needs_aborts()) {
+    if (session.needs_aborts()) {
         Debug("[%lu] Need to abort", tid);
         ccb(ABORTED_SYSTEM);
         return;
     }
 
-    ASSERT(state->executing());
-    state->set_committing();
+    ASSERT(session.executing());
+    session.set_committing();
 
-    auto &min_read_ts = ctx->min_read_ts();
+    auto &min_read_ts = session.min_read_ts();
     Debug("[%lu] min_read_ts: %lu.%lu", tid, min_read_ts.getTimestamp(), min_read_ts.getID());
 
     uint64_t req_id = last_req_id_++;
@@ -504,7 +511,7 @@ void Client::Commit(std::unique_ptr<Context> &ctx, commit_callback ccb, commit_t
     req->ccb = ccb;
     req->ctcb = ctcb;
 
-    auto &participants = state->participants();
+    auto &participants = session.participants();
 
     stats.IncrementList("txn_groups", participants.size());
 
@@ -513,14 +520,14 @@ void Client::Commit(std::unique_ptr<Context> &ctx, commit_callback ccb, commit_t
 
     req->outstandingPrepares = 0;
 
-    int coordinator_shard = ChooseCoordinator(tid);
+    int coordinator_shard = ChooseCoordinator(session);
 
     Timestamp nonblock_timestamp = Timestamp();
     if (consistency_ == Consistency::RSS) {
-        nonblock_timestamp = ChooseNonBlockTimestamp(tid);
+        nonblock_timestamp = ChooseNonBlockTimestamp(session);
     }
 
-    auto cccb = std::bind(&Client::CommitCallback, this, std::ref(ctx), req->id,
+    auto cccb = std::bind(&Client::CommitCallback, this, std::ref(session), req->id,
                           std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
     auto cctcb = [](int) {};
 
@@ -538,8 +545,8 @@ void Client::Commit(std::unique_ptr<Context> &ctx, commit_callback ccb, commit_t
     }
 }
 
-void Client::CommitCallback(std::unique_ptr<Context> &ctx, uint64_t req_id, int status, Timestamp commit_ts, Timestamp nonblock_ts) {
-    auto tid = ctx->transaction_id();
+void Client::CommitCallback(StrongSession &session, uint64_t req_id, int status, Timestamp commit_ts, Timestamp nonblock_ts) {
+    auto tid = session.transaction_id();
     Debug("[%lu] PREPARE callback status %d", tid, status);
 
     auto search = pending_reqs_.find(req_id);
@@ -570,31 +577,26 @@ void Client::CommitCallback(std::unique_ptr<Context> &ctx, uint64_t req_id, int 
     if (tstatus == COMMITTED && consistency_ == Consistency::RSS) {
         ms = tt_.TimeToWaitUntilMS(nonblock_ts.getTimestamp());
         Debug("Waiting for nonblock time: %lu ms", ms);
-        ctx->advance_min_read_ts(commit_ts);
-        auto &min_read_ts = ctx->min_read_ts();
+        session.advance_min_read_ts(commit_ts);
+        auto &min_read_ts = session.min_read_ts();
         Debug("min_read_timestamp_: %lu.%lu", min_read_ts.getTimestamp(), min_read_ts.getID());
     }
 
-    rss::EndRWTransaction(*ctx, service_name_);
+    rss::EndTransaction(session.rss_session(), service_name_);
 
     transport_->Timer(ms, std::bind(ccb, tstatus));
-
-    context_states_.erase(tid);
 }
 
-void Client::Abort(std::unique_ptr<Context> &ctx, abort_callback acb, abort_timeout_callback atcb,
-                   uint32_t timeout) {
-    auto tid = ctx->transaction_id();
+void Client::Abort(Session &s, abort_callback acb, abort_timeout_callback atcb, uint32_t timeout) {
+    auto &session = static_cast<StrongSession &>(s);
+
+    auto tid = session.transaction_id();
     Debug("[%lu] ABORT", tid);
 
-    auto search = context_states_.find(tid);
-    ASSERT(search != context_states_.end());
+    ASSERT(session.needs_aborts() || session.executing());
+    session.set_aborting();
 
-    auto &state = search->second;
-    ASSERT(state->needs_aborts() || state->executing());
-    state->set_aborting();
-
-    auto &participants = state->participants();
+    auto &participants = session.participants();
 
     uint64_t req_id = last_req_id_++;
     PendingRequest *req = new PendingRequest(req_id);
@@ -603,7 +605,7 @@ void Client::Abort(std::unique_ptr<Context> &ctx, abort_callback acb, abort_time
     req->atcb = atcb;
     req->outstandingPrepares = participants.size();
 
-    auto cb = std::bind(&Client::AbortCallback, this, std::ref(ctx), req->id);
+    auto cb = std::bind(&Client::AbortCallback, this, std::ref(session), req->id);
     auto tcb = []() {};
 
     for (int p : participants) {
@@ -611,8 +613,8 @@ void Client::Abort(std::unique_ptr<Context> &ctx, abort_callback acb, abort_time
     }
 }
 
-void Client::AbortCallback(std::unique_ptr<Context> &ctx, uint64_t req_id) {
-    auto tid = ctx->transaction_id();
+void Client::AbortCallback(StrongSession &session, uint64_t req_id) {
+    auto tid = session.transaction_id();
     Debug("[%lu] Abort callback", tid);
 
     auto search = pending_reqs_.find(req_id);
@@ -628,41 +630,36 @@ void Client::AbortCallback(std::unique_ptr<Context> &ctx, uint64_t req_id) {
         pending_reqs_.erase(req_id);
         delete req;
 
-        rss::EndRWTransaction(*ctx, service_name_);
+        rss::EndTransaction(session.rss_session(), service_name_);
 
         Debug("[%lu] Abort finished", tid);
         acb();
-
-        context_states_.erase(tid);
     }
 }
 
 /* Commits RO transaction. */
-void Client::ROCommit(std::unique_ptr<Context> &ctx, const std::unordered_set<std::string> &keys,
+void Client::ROCommit(Session &s, const std::unordered_set<std::string> &keys,
                       commit_callback ccb, commit_timeout_callback ctcb,
                       uint32_t timeout) {
-    auto tid = ctx->transaction_id();
+    auto &session = static_cast<StrongSession &>(s);
+
+    auto tid = session.transaction_id();
 
     Debug("[%lu] ROCOMMIT", tid);
 
-    auto search = context_states_.find(tid);
-    ASSERT(search != context_states_.end());
-
-    auto &state = search->second;
-
-    auto &min_read_ts = ctx->min_read_ts();
+    auto &min_read_ts = session.min_read_ts();
     Debug("[%lu] min_read_ts: %lu.%lu", tid, min_read_ts.getTimestamp(), min_read_ts.getID());
 
-    state->set_committing();
+    session.set_committing();
 
-    auto &participants = state->participants();
+    auto &participants = session.participants();
     ASSERT(participants.size() == 0);
 
     std::unordered_map<int, std::vector<std::string>> sharded_keys;
     for (auto &key : keys) {
         int i = (*part_)(key, nshards_, -1, participants);
         sharded_keys[i].push_back(key);
-        state->add_participant(i);
+        session.add_participant(i);
     }
 
     uint64_t req_id = last_req_id_++;
@@ -676,7 +673,7 @@ void Client::ROCommit(std::unique_ptr<Context> &ctx, const std::unordered_set<st
 
     ASSERT(sharded_keys.size() > 0);
 
-    Timestamp min_ts = ctx->min_read_ts();
+    Timestamp min_ts = session.min_read_ts();
     Timestamp commit_ts{tt_.Now().latest(), client_id_};
 
     // Hack to make RSS work with zero TrueTime error despite clock skew
@@ -688,10 +685,10 @@ void Client::ROCommit(std::unique_ptr<Context> &ctx, const std::unordered_set<st
     Debug("[%lu] commit_ts: %lu.%lu", tid, commit_ts.getTimestamp(), commit_ts.getID());
     Debug("[%lu] min_ts: %lu.%lu", tid, min_ts.getTimestamp(), min_ts.getID());
 
-    auto roccb = std::bind(&Client::ROCommitCallback, this, std::ref(ctx), req->id,
+    auto roccb = std::bind(&Client::ROCommitCallback, this, std::ref(session), req->id,
                            std::placeholders::_1, std::placeholders::_2,
                            std::placeholders::_3);
-    auto rocscb = std::bind(&Client::ROCommitSlowCallback, this, std::ref(ctx), req->id,
+    auto rocscb = std::bind(&Client::ROCommitSlowCallback, this, std::ref(session), req->id,
                             std::placeholders::_1, std::placeholders::_2,
                             std::placeholders::_3, std::placeholders::_4);
     auto roctcb = []() {};  // TODO: Handle timeout
@@ -701,10 +698,10 @@ void Client::ROCommit(std::unique_ptr<Context> &ctx, const std::unordered_set<st
     }
 }
 
-void Client::ROCommitCallback(std::unique_ptr<Context> &ctx, uint64_t req_id, int shard_idx,
+void Client::ROCommitCallback(StrongSession &session, uint64_t req_id, int shard_idx,
                               const std::vector<Value> &values,
                               const std::vector<PreparedTransaction> &prepares) {
-    auto tid = ctx->transaction_id();
+    auto tid = session.transaction_id();
 
     Debug("[%lu] ROCommit callback", tid);
 
@@ -714,11 +711,7 @@ void Client::ROCommitCallback(std::unique_ptr<Context> &ctx, uint64_t req_id, in
         return;
     }
 
-    auto search2 = context_states_.find(tid);
-    ASSERT(search2 != context_states_.end());
-    auto &state = search2->second;
-
-    SnapshotResult r = ReceiveFastPath(tid, state, shard_idx, values, prepares);
+    SnapshotResult r = ReceiveFastPath(session, tid, shard_idx, values, prepares);
     if (r.state == COMMIT) {
         PendingRequest *req = search->second;
 
@@ -726,24 +719,21 @@ void Client::ROCommitCallback(std::unique_ptr<Context> &ctx, uint64_t req_id, in
         pending_reqs_.erase(search);
         delete req;
 
-        ctx->advance_min_read_ts(r.max_read_ts);
+        session.advance_min_read_ts(r.max_read_ts);
 
-        auto &min_read_ts = ctx->min_read_ts();
+        auto &min_read_ts = session.min_read_ts();
         Debug("min_read_timestamp_: %lu.%lu", min_read_ts.getTimestamp(), min_read_ts.getID());
 
-        rss::EndROTransaction(*ctx, service_name_);
+        rss::EndTransaction(session.rss_session(), service_name_);
 
         Debug("[%lu] COMMIT OK", tid);
         ccb(COMMITTED);
-
-        context_states_.erase(tid);
-
     } else if (r.state == WAIT) {
         Debug("[%lu] Waiting for more RO responses", tid);
     }
 }
 
-void Client::ROCommitSlowCallback(std::unique_ptr<Context> &ctx, uint64_t req_id, int shard_idx,
+void Client::ROCommitSlowCallback(StrongSession &session, uint64_t req_id, int shard_idx,
                                   uint64_t rw_transaction_id, const Timestamp &commit_ts, bool is_commit) {
     auto search = pending_reqs_.find(req_id);
     if (search == pending_reqs_.end()) {
@@ -751,15 +741,11 @@ void Client::ROCommitSlowCallback(std::unique_ptr<Context> &ctx, uint64_t req_id
         return;
     }
 
-    auto tid = ctx->transaction_id();
+    auto tid = session.transaction_id();
 
     Debug("[%lu] ROCommitSlow callback", tid);
 
-    auto search2 = context_states_.find(tid);
-    ASSERT(search2 != context_states_.end());
-    auto &state = search2->second;
-
-    SnapshotResult r = ReceiveSlowPath(tid, state, rw_transaction_id, is_commit, commit_ts);
+    SnapshotResult r = ReceiveSlowPath(session, tid, rw_transaction_id, is_commit, commit_ts);
     if (r.state == COMMIT) {
         PendingRequest *req = search->second;
 
@@ -767,53 +753,50 @@ void Client::ROCommitSlowCallback(std::unique_ptr<Context> &ctx, uint64_t req_id
         pending_reqs_.erase(search);
         delete req;
 
-        ctx->advance_min_read_ts(r.max_read_ts);
+        session.advance_min_read_ts(r.max_read_ts);
 
-        auto &min_read_ts = ctx->min_read_ts();
+        auto &min_read_ts = session.min_read_ts();
         Debug("min_read_timestamp_: %lu.%lu", min_read_ts.getTimestamp(), min_read_ts.getID());
 
-        rss::EndROTransaction(*ctx, service_name_);
+        rss::EndTransaction(session.rss_session(), service_name_);
 
         Debug("[%lu] COMMIT OK", tid);
         ccb(COMMITTED);
-
-        context_states_.erase(tid);
-
     } else if (r.state == WAIT) {
         Debug("[%lu] Waiting for more RO responses", tid);
     }
 }
 
-SnapshotResult Client::ReceiveFastPath(uint64_t transaction_id,
-                                       std::unique_ptr<ContextState> &state,
+SnapshotResult Client::ReceiveFastPath(StrongSession &session,
+                                       uint64_t transaction_id,
                                        int shard_idx,
                                        const std::vector<Value> &values,
                                        const std::vector<PreparedTransaction> &prepares) {
     Debug("[%lu] Received fast path RO response", transaction_id);
 
-    auto &participants = state->mutable_participants();
+    auto &participants = session.mutable_participants();
 
     ASSERT(participants.count(shard_idx) > 0);
     participants.erase(shard_idx);
 
-    AddValues(state, values);
-    AddPrepares(state, prepares);
+    AddValues(session, values);
+    AddPrepares(session, prepares);
 
     // Received all fast path responses
     if (participants.size() == 0) {
-        ReceivedAllFastPaths(state);
+        ReceivedAllFastPaths(session);
     }
 
-    return CheckCommit(state);
+    return CheckCommit(session);
 }
 
-SnapshotResult Client::ReceiveSlowPath(uint64_t transaction_id, std::unique_ptr<ContextState> &state,
+SnapshotResult Client::ReceiveSlowPath(StrongSession &session, uint64_t transaction_id,
                                        uint64_t rw_transaction_id,
                                        bool is_commit, const Timestamp &commit_ts) {
     Debug("[%lu] Received slow path RO response", transaction_id);
     ASSERT(consistency_ == RSS);
 
-    auto &prepares = state->mutable_prepares();
+    auto &prepares = session.mutable_prepares();
 
     auto search = prepares.find(rw_transaction_id);
     if (search == prepares.end()) {
@@ -830,16 +813,16 @@ SnapshotResult Client::ReceiveSlowPath(uint64_t transaction_id, std::unique_ptr<
             values.emplace_back(rw_transaction_id, commit_ts, write.first, write.second);
         }
 
-        AddValues(state, values);
+        AddValues(session, values);
     }
 
     prepares.erase(search);
 
-    return CheckCommit(state);
+    return CheckCommit(session);
 }
 
-void Client::AddValues(std::unique_ptr<ContextState> &state, const std::vector<Value> &vs) {
-    auto &values = state->mutable_values();
+void Client::AddValues(StrongSession &session, const std::vector<Value> &vs) {
+    auto &values = session.mutable_values();
 
     for (auto &v : vs) {
         std::list<Value> &l = values[v.key()];
@@ -856,8 +839,8 @@ void Client::AddValues(std::unique_ptr<ContextState> &state, const std::vector<V
     }
 }
 
-void Client::AddPrepares(std::unique_ptr<ContextState> &state, const std::vector<PreparedTransaction> &ps) {
-    auto &prepares = state->mutable_prepares();
+void Client::AddPrepares(StrongSession &session, const std::vector<PreparedTransaction> &ps) {
+    auto &prepares = session.mutable_prepares();
 
     for (auto &p : ps) {
         auto search = prepares.find(p.transaction_id());
@@ -872,14 +855,14 @@ void Client::AddPrepares(std::unique_ptr<ContextState> &state, const std::vector
     }
 }
 
-void Client::ReceivedAllFastPaths(std::unique_ptr<ContextState> &state) {
-    FindCommittedKeys(state);
-    CalculateSnapshotTimestamp(state);
+void Client::ReceivedAllFastPaths(StrongSession &session) {
+    FindCommittedKeys(session);
+    CalculateSnapshotTimestamp(session);
 }
 
-void Client::FindCommittedKeys(std::unique_ptr<ContextState> &state) {
-    auto &prepares = state->mutable_prepares();
-    auto &values = state->mutable_values();
+void Client::FindCommittedKeys(StrongSession &session) {
+    auto &prepares = session.mutable_prepares();
+    auto &values = session.mutable_values();
 
     if (prepares.size() == 0) {
         return;
@@ -906,11 +889,11 @@ void Client::FindCommittedKeys(std::unique_ptr<ContextState> &state) {
         }
     }
 
-    AddValues(state, to_add);
+    AddValues(session, to_add);
 }
 
-void Client::CalculateSnapshotTimestamp(std::unique_ptr<ContextState> &state) {
-    auto &values = state->mutable_values();
+void Client::CalculateSnapshotTimestamp(StrongSession &session) {
+    auto &values = session.mutable_values();
 
     // Find snapshot ts, the minimum timestamp we can use to read all keys
     Timestamp snapshot_ts{0, 0};
@@ -923,14 +906,14 @@ void Client::CalculateSnapshotTimestamp(std::unique_ptr<ContextState> &state) {
         }
     }
 
-    state->set_snapshot_ts(snapshot_ts);
+    session.set_snapshot_ts(snapshot_ts);
 }
 
-SnapshotResult Client::CheckCommit(std::unique_ptr<ContextState> &state) {
-    auto &participants = state->participants();
-    auto &prepares = state->mutable_prepares();
-    auto &values = state->mutable_values();
-    auto &snapshot_ts = state->snapshot_ts();
+SnapshotResult Client::CheckCommit(StrongSession &session) {
+    auto &participants = session.participants();
+    auto &prepares = session.mutable_prepares();
+    auto &values = session.mutable_values();
+    auto &snapshot_ts = session.snapshot_ts();
 
     if (participants.size() > 0) {
         return {WAIT};

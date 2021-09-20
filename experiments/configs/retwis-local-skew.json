@@ -2,10 +2,6 @@
   "experiment_independent_vars": [
     [
       "consistency"
-    ],
-    [
-      "client_key_selector",
-      "client_zipf_coefficient"
     ]
   ],
   "replication_protocol": "strong",
@@ -24,7 +20,7 @@
   "consistency": [
     "rss"
   ],
-  "num_instances": 2,
+  "num_instances": 1,
   "shard_config_format_str": "shard-%d.config",
   "replica_config_format_str": "replica-%d.config",
   "network_config": "network.json",
@@ -65,14 +61,11 @@
   "truetime_error": 10,
   "client_num_keys": 1000000,
   "benchmark_name": "retwis",
-  "client_key_selector": [
-    "zipf"
-  ],
-  "client_zipf_coefficient": [
-    0.9
-  ],
-  "client_arrival_rate": 5,
-  "client_stay_probability": 0.5,
+  "bench_mode": "open",
+  "client_key_selector": "zipf",
+  "client_zipf_coefficient": 0.7,
+  "client_arrival_rate": 1,
+  "client_stay_probability": 0.1,
   "client_think_time": 0,
   "nb_time_alpha": 1.0,
   "rw_num_ops_txn": 1,
@@ -97,12 +90,12 @@
   "client_debug_output": true,
   "server_debug_output": true,
   "client_debug_stats": false,
-  "server_debug_stats": true,
+  "server_debug_stats": false,
   "server_load_time": 0,
-  "client_experiment_length": 40,
+  "client_experiment_length": 10,
   "client_rand_sleep": 0,
-  "client_ramp_down": 5,
-  "client_ramp_up": 5,
+  "client_ramp_down": 0,
+  "client_ramp_up": 0,
   "default_remote_shell": "bash",
   "server_host_format_str": "%s.%s.%s.utah.cloudlab.us",
   "client_host_format_str": "%s.%s.%s.utah.cloudlab.us",
@@ -158,74 +151,7 @@
     }
   },
   "server_emulate_wan": false,
-  "plots": [
-    {
-      "name": "lat-skew-combined",
-      "font": "DejaVu Sans,12",
-      "height": 600,
-      "width": 800,
-      "series_indep_vars_idx": 0,
-      "series_titles": [
-        "Spanner"
-      ],
-      "x_var_is_config": true,
-      "x_indep_vars_idx": 1,
-      "x_var": [
-        "client_zipf_coefficient"
-      ],
-      "y_var": [
-        "aggregate",
-        "combined",
-        "p50"
-      ],
-      "y_label": "p50 Latency (ms)",
-      "x_label": "Zipf Coefficient"
-    },
-    {
-      "name": "lat-skew-ro",
-      "font": "DejaVu Sans,12",
-      "height": 600,
-      "width": 800,
-      "series_indep_vars_idx": 0,
-      "series_titles": [
-        "Spanner"
-      ],
-      "x_var_is_config": true,
-      "x_indep_vars_idx": 1,
-      "x_var": [
-        "client_zipf_coefficient"
-      ],
-      "y_var": [
-        "aggregate",
-        "ro",
-        "p50"
-      ],
-      "y_label": "p50 Latency (ms)",
-      "x_label": "Zipf Coefficient"
-    },
-    {
-      "name": "lat-skew-rw",
-      "font": "DejaVu Sans,12",
-      "height": 600,
-      "width": 800,
-      "series_indep_vars_idx": 0,
-      "series_titles": [
-        "Spanner"
-      ],
-      "x_var_is_config": true,
-      "x_indep_vars_idx": 1,
-      "x_var": [
-        "client_zipf_coefficient"
-      ],
-      "y_var": [
-        "aggregate",
-        "rw",
-        "p50"
-      ],
-      "y_label": "p50 Latency (ms)",
-      "x_label": "Zipf Coefficient"
-    }
-  ],
+  "plots": [],
   "cdf_plots": {
     "font": "DejaVu Sans,12",
     "height": 600,
