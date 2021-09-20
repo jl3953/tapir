@@ -20,7 +20,7 @@
   "consistency": [
     "rss"
   ],
-  "num_instances": 1,
+  "num_instances": 2,
   "shard_config_format_str": "shard-%d.config",
   "replica_config_format_str": "replica-%d.config",
   "network_config": "network.json",

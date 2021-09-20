@@ -293,7 +293,7 @@ rss::Session Client::EndSession(Session &session) {
 
     Debug("EndSession1");
 
-    rss::Session rss_session = std::move(session.rss_session());
+    rss::Session rss_session = std::move(session);
 
     Debug("EndSession2");
 
@@ -329,7 +329,7 @@ void Client::Begin(Session &s) {
 }
 
 void Client::BeginRW(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) {
-    rss::StartTransaction(session.rss_session(), service_name_);
+    rss::StartTransaction(session, service_name_);
 
     Begin(session);
 
@@ -337,7 +337,7 @@ void Client::BeginRW(Session &session, begin_callback bcb, begin_timeout_callbac
 }
 
 void Client::BeginRO(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) {
-    rss::StartTransaction(session.rss_session(), service_name_);
+    rss::StartTransaction(session, service_name_);
 
     Begin(session);
 
@@ -354,7 +354,7 @@ void Client::Retry(Session &s, begin_callback bcb,
         sessions_by_transaction_id_.erase(session.transaction_id());
     }
 
-    rss::StartTransaction(session.rss_session(), service_name_);
+    rss::StartTransaction(session, service_name_);
 
     auto tid = next_transaction_id_++;
 
@@ -582,7 +582,7 @@ void Client::CommitCallback(StrongSession &session, uint64_t req_id, int status,
         Debug("min_read_timestamp_: %lu.%lu", min_read_ts.getTimestamp(), min_read_ts.getID());
     }
 
-    rss::EndTransaction(session.rss_session(), service_name_);
+    rss::EndTransaction(session, service_name_);
 
     transport_->Timer(ms, std::bind(ccb, tstatus));
 }
@@ -630,7 +630,7 @@ void Client::AbortCallback(StrongSession &session, uint64_t req_id) {
         pending_reqs_.erase(req_id);
         delete req;
 
-        rss::EndTransaction(session.rss_session(), service_name_);
+        rss::EndTransaction(session, service_name_);
 
         Debug("[%lu] Abort finished", tid);
         acb();
@@ -724,7 +724,7 @@ void Client::ROCommitCallback(StrongSession &session, uint64_t req_id, int shard
         auto &min_read_ts = session.min_read_ts();
         Debug("min_read_timestamp_: %lu.%lu", min_read_ts.getTimestamp(), min_read_ts.getID());
 
-        rss::EndTransaction(session.rss_session(), service_name_);
+        rss::EndTransaction(session, service_name_);
 
         Debug("[%lu] COMMIT OK", tid);
         ccb(COMMITTED);
@@ -758,7 +758,7 @@ void Client::ROCommitSlowCallback(StrongSession &session, uint64_t req_id, int s
         auto &min_read_ts = session.min_read_ts();
         Debug("min_read_timestamp_: %lu.%lu", min_read_ts.getTimestamp(), min_read_ts.getID());
 
-        rss::EndTransaction(session.rss_session(), service_name_);
+        rss::EndTransaction(session, service_name_);
 
         Debug("[%lu] COMMIT OK", tid);
         ccb(COMMITTED);

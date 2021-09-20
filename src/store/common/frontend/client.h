@@ -32,17 +32,11 @@ enum transaction_status_t {
     ABORTED_MAX_RETRIES
 };
 
-class Session {
+class Session : public rss::Session {
    public:
-    Session() : rss_session_() {}
-    Session(rss::Session &&session) : rss_session_{std::move(session)} {}
-    Session(Session &&o) : rss_session_{std::move(o.rss_session_)} {}
-
-    uint64_t id() const { return rss_session_.id(); }
-    rss::Session &rss_session() { return rss_session_; }
-
-   private:
-    rss::Session rss_session_;
+    Session() : rss::Session() {}
+    Session(rss::Session &&session) : rss::Session(std::move(session)) {}
+    Session(Session &&other) : rss::Session(std::move(other)) {}
 };
 
 typedef std::function<void()> begin_callback;
