@@ -22,6 +22,7 @@ class RetwisClient : public BenchmarkClient {
     RetwisClient(KeySelector *keySelector, const std::vector<Client *> &clients, uint32_t timeout,
                  Transport &transport, uint64_t id,
                  BenchmarkClientMode mode,
+                 double switch_probability,
                  double arrival_rate, double think_time, double stay_probability,
                  int mpl,
                  int expDuration, int warmupSec, int cooldownSec, int tputInterval, uint32_t abortBackoff,

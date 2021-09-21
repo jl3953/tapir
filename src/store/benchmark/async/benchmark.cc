@@ -243,6 +243,7 @@ DEFINE_double(client_arrival_rate, 1.0, "arrival rate for open loop clients");
 DEFINE_double(client_think_time, 1.0, "think time for closed and partly open loop clients");
 DEFINE_double(client_stay_probability, 0.5, "session stay probability for partly open loop clients");
 DEFINE_double(mpl, 1, "multi-programming level for closed-loop clients");
+DEFINE_double(client_switch_probability, 0.0, "session switch service probability for multi-instance experiments");
 
 /**
  * RW settings.
@@ -632,6 +633,7 @@ int main(int argc, char **argv) {
             bench = new retwis::RetwisClient(
                 keySelector, clients, FLAGS_message_timeout, *tport, seed,
                 bench_mode,
+                FLAGS_client_switch_probability,
                 FLAGS_client_arrival_rate, FLAGS_client_think_time, FLAGS_client_stay_probability,
                 FLAGS_mpl,
                 FLAGS_exp_duration, FLAGS_warmup_secs, FLAGS_cooldown_secs,

@@ -30,6 +30,7 @@ class BenchmarkClient {
     BenchmarkClient(const std::vector<Client *> &clients, uint32_t timeout,
                     Transport &transport, uint64_t id,
                     BenchmarkClientMode mode,
+                    double switch_probability,
                     double arrival_rate, double think_time, double stay_probability,
                     int mpl,
                     int expDuration, int warmupSec, int cooldownSec,
@@ -147,6 +148,7 @@ class BenchmarkClient {
     std::exponential_distribution<> next_arrival_dist_;
     std::exponential_distribution<> think_time_dist_;
     std::bernoulli_distribution stay_dist_;
+    std::bernoulli_distribution switch_dist_;
     int n;
     int n_sessions_started_;
     int mpl_;

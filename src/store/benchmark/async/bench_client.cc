@@ -18,6 +18,7 @@ DEFINE_LATENCY(op);
 BenchmarkClient::BenchmarkClient(const std::vector<Client *> &clients, uint32_t timeout,
                                  Transport &transport, uint64_t id,
                                  BenchmarkClientMode mode,
+                                 double switch_probability,
                                  double arrival_rate, double think_time, double stay_probability,
                                  int mpl,
                                  int expDuration, int warmupSec, int cooldownSec,
@@ -33,6 +34,7 @@ BenchmarkClient::BenchmarkClient(const std::vector<Client *> &clients, uint32_t 
       next_arrival_dist_{arrival_rate * 1e-6},
       think_time_dist_{1 / think_time * 1e-6},
       stay_dist_{stay_probability},
+      switch_dist_{switch_probability},
       mpl_{mpl},
       exp_duration_{expDuration},
       warmupSec{warmupSec},
@@ -71,7 +73,7 @@ void BenchmarkClient::SendNext() {
     Debug("[%lu] SendNext", n_sessions_started_);
     n_sessions_started_++;
 
-    std::size_t client_index = 0;  // TODO: Choose client
+    std::size_t client_index = n_sessions_started_ % clients_.size();
     auto &client = *clients_[client_index];
 
     auto &session = client.BeginSession();
@@ -133,20 +135,16 @@ void BenchmarkClient::SendNextInSession(const uint64_t session_id) {
     ASSERT(search != session_states_.end());
     auto &ss = search->second;
 
-    auto cur_client_index = ss.current_client_index();
-    std::size_t next_client_index = 1;  // TODO: Choose client
-
     auto ecb = std::bind(&BenchmarkClient::ExecuteCallback, this, session_id, std::placeholders::_1);
     auto transaction = GetNextTransaction();
     stats.Increment(transaction->GetTransactionType() + "_attempts", 1);
 
-    if (cur_client_index == next_client_index) {
-        ss.start_transaction(ss.session(), transaction, ecb, next_client_index);
-    } else {
+    if (switch_dist_(rand_)) {
+        auto cur_client_index = ss.current_client_index();
+        std::size_t next_client_index = (cur_client_index + 1) % clients_.size();
+
         auto &cur_client = *clients_[cur_client_index];
         rss::Session rss_session = cur_client.EndSession(ss.session());
-
-        Debug("rss_session: %lu", rss_session.id());
 
         auto &next_client = *clients_[next_client_index];
 
@@ -154,12 +152,12 @@ void BenchmarkClient::SendNextInSession(const uint64_t session_id) {
         ASSERT(session_id == session.id());
 
         ss.start_transaction(session, transaction, ecb, next_client_index);
+    } else {
+        ss.start_transaction(ss.session(), transaction, ecb, ss.current_client_index());
     }
 
-    Debug("Starting transaction");
-
     auto &session = ss.session();
-    auto &client = *clients_[next_client_index];
+    auto &client = *clients_[ss.current_client_index()];
 
     _Latency_StartRec(ss.lat());
 
@@ -168,7 +166,6 @@ void BenchmarkClient::SendNextInSession(const uint64_t session_id) {
 
     Operation op = transaction->GetNextOperation(0);
     switch (op.type) {
-        // TODO: Combine two begin types
         case BEGIN_RW:
         case BEGIN_RO:
             client.Begin(session, bcb, btcb, timeout_);

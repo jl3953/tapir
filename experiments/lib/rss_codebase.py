@@ -79,6 +79,9 @@ class RssCodebase:
         elif bench_mode == 'closed':
             client_command += ' --mpl=%d' % config['mpl']
 
+        if 'client_switch_probability' in config:
+            client_command += ' --client_switch_probability %f' %config['client_switch_probability']
+
         if config['server_emulate_wan']:
             client_command += ' --ping_replicas=true'
 

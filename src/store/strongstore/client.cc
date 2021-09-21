@@ -223,8 +223,13 @@ void Client::HandleWound(const uint64_t transaction_id) {
         Debug("[%lu] Transaction already finished", transaction_id);
         return;
     }
-
     auto &session = search->second;
+
+    if (session.participants().size() == 0) {
+        Debug("[%lu] RO Transaction...letting finish", transaction_id);
+        return;
+    }
+
     int p = -1;
     int coordinator = -1;
     Debug("[%lu] client state: %d", transaction_id, session.state());
@@ -544,7 +549,7 @@ void Client::Commit(Session &s, commit_callback ccb, commit_timeout_callback ctc
 
 void Client::CommitCallback(StrongSession &session, uint64_t req_id, int status, Timestamp commit_ts, Timestamp nonblock_ts) {
     auto tid = session.transaction_id();
-    Debug("[%lu] PREPARE callback status %d", tid, status);
+    Debug("[%lu] COMMIT callback status %d", tid, status);
 
     auto search = pending_reqs_.find(req_id);
     if (search == pending_reqs_.end()) {
