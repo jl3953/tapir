@@ -25,6 +25,11 @@ Operation Put(const std::string &key,
     return Operation{PUT, key, value};
 }
 
+Operation PutMulti(const std::vector<std::string>& keys,
+              const std::vector<std::string>& values) {
+    return Operation{PUT_MULTI, "", "", {}, keys, values};
+}
+
 Operation Commit() {
     return Operation{COMMIT, "", ""};
 }

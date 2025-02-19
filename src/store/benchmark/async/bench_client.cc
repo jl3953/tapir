@@ -214,6 +214,10 @@ void BenchmarkClient::ExecuteNextOperation(const uint64_t session_id) {
             client.Put(session, op.key, op.value, pcb, ptcb, timeout_);
             break;
 
+        case PUT_MULTI:
+            client.PutMulti(session, op.keys_written, op.values_written, pcb, ptcb, timeout_);
+            break;
+
         case COMMIT:
             client.Commit(session, ccb, ctcb, timeout_);
             break;

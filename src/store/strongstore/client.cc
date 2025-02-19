@@ -487,6 +487,50 @@ void Client::Put(Session &s, const std::string &key, const std::string &value,
     sclients_[i]->Put(tid, key, value, pcb1, ptcb1, timeout);
 }
 
+void Client::PutMulti(Session &s, const std::vector<std::string> &keys, const std::vector<std::string> &values,
+                      strongstore::put_callback pcb, strongstore::put_timeout_callback ptcb, uint32_t timeout) {
+
+    auto &session = static_cast<StrongSession &>(s);
+
+    auto tid = session.transaction_id();
+
+    for (int j = 0; j < keys.size(); j++) {
+
+        const std::string &key = keys[j];
+        const std::string &value = values[j];
+
+        Debug("PUT [%lu : %s]", tid, key.c_str());
+
+        if (session.needs_aborts()) {
+            Debug("[%lu] Need to abort", tid);
+            pcb(REPLY_FAIL, "", "");
+            return;
+        }
+
+        ASSERT(session.executing());
+
+        // Contact the appropriate shard to set the value.
+        int i = (*part_)(key, nshards_, -1, session.participants());
+
+        session.set_putting(i);
+
+        // Add this shard to set of participants
+        session.add_participant(i);
+
+        auto pcb1 = [pcb, session = std::ref(session)](int s, const std::string &k, const std::string &v) {
+            session.get().set_executing();
+            pcb(s, k, v);
+        };
+
+        auto ptcb1 = [ptcb, session = std::ref(session)](int s, const std::string &k, const std::string &v) {
+            session.get().set_executing();
+            ptcb(s, k, v);
+        };
+
+        sclients_[i]->Put(tid, key, value, pcb1, ptcb1, timeout);
+    }
+}
+
 /* Attempts to commit the ongoing transaction. */
 void Client::Commit(Session &s, commit_callback ccb, commit_timeout_callback ctcb, uint32_t timeout) {
     auto &session = static_cast<StrongSession &>(s);

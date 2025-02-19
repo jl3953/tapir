@@ -11,6 +11,7 @@ enum OperationType {
     GET,
     GET_FOR_UPDATE,
     PUT,
+    PUT_MULTI,
     COMMIT,
     ABORT,
     WAIT,
@@ -22,6 +23,8 @@ struct Operation {
     std::string key;
     std::string value;
     const std::unordered_set<std::string> keys;
+    const std::vector<std::string> keys_written;
+    const std::vector<std::string> values_written;
 };
 
 Operation BeginRW();
@@ -36,6 +39,9 @@ Operation GetForUpdate(const std::string &key);
 
 Operation Put(const std::string &key,
               const std::string &value);
+
+Operation PutMulti(const std::vector<std::string>& keys,
+                   const std::vector<std::string>& values);
 
 Operation Commit();
 

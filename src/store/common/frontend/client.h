@@ -33,9 +33,11 @@ enum transaction_status_t {
 };
 
 class Session : public rss::Session {
-   public:
+public:
     Session() : rss::Session() {}
+
     Session(rss::Session &&session) : rss::Session(std::move(session)) {}
+
     Session(Session &&other) : rss::Session(std::move(other)) {}
 };
 
@@ -46,9 +48,9 @@ typedef std::function<void(int, const std::string &, const std::string &, Timest
 typedef std::function<void(int, const std::string &)> get_timeout_callback;
 
 typedef std::function<void(int, const std::string &, const std::string &)>
-    put_callback;
+        put_callback;
 typedef std::function<void(int, const std::string &, const std::string &)>
-    put_timeout_callback;
+        put_timeout_callback;
 
 typedef std::function<void(transaction_status_t)> commit_callback;
 typedef std::function<void()> commit_timeout_callback;
@@ -57,12 +59,15 @@ typedef std::function<void()> abort_callback;
 typedef std::function<void()> abort_timeout_callback;
 
 class Client {
-   public:
+public:
     Client() { _Latency_Init(&clientLat, "client_lat"); }
+
     virtual ~Client() {}
 
     virtual Session &BeginSession() = 0;
+
     virtual Session &ContinueSession(rss::Session &session) = 0;
+
     virtual rss::Session EndSession(Session &session) = 0;
 
     virtual void Begin(Session &session, begin_callback bcb, begin_timeout_callback btcb, uint32_t timeout) = 0;
@@ -83,6 +88,10 @@ class Client {
     virtual void Put(Session &session, const std::string &key, const std::string &value,
                      put_callback pcb, put_timeout_callback ptcb, uint32_t timeout) = 0;
 
+    virtual void PutMulti(Session &session, const std::vector<std::string> &keys,
+                          const std::vector<std::string> &values,
+                          put_callback pcb, put_timeout_callback ptcb, uint32_t timeout) = 0;
+
     // Commit all Get(s) and Put(s) since Begin().
     virtual void Commit(Session &session, commit_callback ccb, commit_timeout_callback ctcb,
                         uint32_t timeout) = 0;
@@ -98,12 +107,14 @@ class Client {
 
     inline Stats &GetStats() { return stats; }
 
-   protected:
+protected:
     void StartRecLatency();
+
     void EndRecLatency(const std::string &str);
+
     Stats stats;
 
-   private:
+private:
     Latency_t clientLat;
 };
 

@@ -180,6 +180,11 @@ class Client : public ::Client {
                      put_callback pcb, put_timeout_callback ptcb,
                      uint32_t timeout = PUT_TIMEOUT) override;
 
+    virtual void PutMulti(Session &session, const std::vector<std::string>& keys,
+                          const std::vector<std::string>& values,
+                          put_callback pcb, put_timeout_callback ptcb,
+                          uint32_t timeout = PUT_TIMEOUT) override;
+
     // Commit all Get(s) and Put(s) since Begin().
     virtual void Commit(Session &session, commit_callback ccb, commit_timeout_callback ctcb,
                         uint32_t timeout) override;
