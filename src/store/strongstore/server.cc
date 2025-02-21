@@ -458,9 +458,9 @@ void Server::HandleRWCommitCoordinator(const TransportAddress &remote, proto::RW
     if (s == PREPARING) {
         //Debug("[%lu] Coordinator preparing", transaction_id);
 
-        LockAcquireResult ar = locks_.AcquireLocks(transaction_id, transaction);
-        if (ar.status == LockStatus::ACQUIRED) {
-            ASSERT(ar.wound_rws.size() == 0);
+        // LockAcquireResult ar = locks_.AcquireLocks(transaction_id, transaction);
+        // if (ar.status == LockStatus::ACQUIRED) {
+            // ASSERT(ar.wound_rws.size() == 0);
             const Timestamp prepare_ts = GetPrepareTimestamp(client_id);
             transactions_.FinishCoordinatorPrepare(transaction_id, prepare_ts);
             const Timestamp &commit_ts = transactions_.GetRWCommitTimestamp(transaction_id);
@@ -468,52 +468,53 @@ void Server::HandleRWCommitCoordinator(const TransportAddress &remote, proto::RW
             auto *reply = new PendingRWCommitCoordinatorReply(client_id, client_req_id, remote.clone());
             pending_rw_commit_c_replies_[transaction_id] = reply;
 
-            // TODO: Handle timeout
-            replica_client_->CoordinatorCommit(
-                transaction_id, start_ts, shard_idx_,
-                participants, transaction, nonblock_ts, commit_ts,
-                std::bind(&Server::CommitCoordinatorCallback, this,
-                          transaction_id, std::placeholders::_1),
-                []() {}, COMMIT_TIMEOUT);
+            // // TODO: Handle timeout
+            // replica_client_->CoordinatorCommit(
+            //     transaction_id, start_ts, shard_idx_,
+            //     participants, transaction, nonblock_ts, commit_ts,
+            //     std::bind(&Server::CommitCoordinatorCallback, this,
+            //               transaction_id, std::placeholders::_1),
+            //     []() {}, COMMIT_TIMEOUT);
 
-        } else if (ar.status == LockStatus::FAIL) {
-            ASSERT(ar.wound_rws.size() == 0);
-            //Debug("[%lu] Coordinator prepare failed", transaction_id);
-            LockReleaseResult rr = locks_.ReleaseLocks(transaction_id, transaction);
-
-            SendRWCommmitCoordinatorReplyFail(remote, client_id, client_req_id);
-
-            NotifyPendingRWs(transaction_id, rr.notify_rws);
-
-            transactions_.AbortPrepare(transaction_id);
-        } else if (ar.status == LockStatus::WAITING) {
-            Debug("[%lu] Waiting", transaction_id);
-
-            auto reply = new PendingRWCommitCoordinatorReply(client_id, client_req_id, remote.clone());
-            pending_rw_commit_c_replies_[transaction_id] = reply;
-
-            transactions_.PausePrepare(transaction_id);
-
-            WoundPendingRWs(transaction_id, ar.wound_rws);
-        } else {
-            NOT_REACHABLE();
         }
+        // else if (ar.status == LockStatus::FAIL) {
+        //     ASSERT(ar.wound_rws.size() == 0);
+        //     //Debug("[%lu] Coordinator prepare failed", transaction_id);
+        //     LockReleaseResult rr = locks_.ReleaseLocks(transaction_id, transaction);
+        //
+        //     SendRWCommmitCoordinatorReplyFail(remote, client_id, client_req_id);
+        //
+        //     NotifyPendingRWs(transaction_id, rr.notify_rws);
+        //
+        //     transactions_.AbortPrepare(transaction_id);
+        // } else if (ar.status == LockStatus::WAITING) {
+        //     Debug("[%lu] Waiting", transaction_id);
+        //
+        //     auto reply = new PendingRWCommitCoordinatorReply(client_id, client_req_id, remote.clone());
+        //     pending_rw_commit_c_replies_[transaction_id] = reply;
+        //
+        //     transactions_.PausePrepare(transaction_id);
+        //
+        //     WoundPendingRWs(transaction_id, ar.wound_rws);
+        // } else {
+        //     NOT_REACHABLE();
+        // }
 
-    } else if (s == ABORTED) {
-        //Debug("[%lu] Already aborted", transaction_id);
-
-        SendRWCommmitCoordinatorReplyFail(remote, client_id, client_req_id);
-
-        SendAbortParticipants(transaction_id, participants);
-
-    } else if (s == WAIT_PARTICIPANTS) {
-        //Debug("[%lu] Waiting for other participants", transaction_id);
-
-        auto reply = new PendingRWCommitCoordinatorReply(client_id, client_req_id, remote.clone());
-        pending_rw_commit_c_replies_[transaction_id] = reply;
-    } else {
-        NOT_REACHABLE();
-    }
+    // } else if (s == ABORTED) {
+    //     //Debug("[%lu] Already aborted", transaction_id);
+    //
+    //     SendRWCommmitCoordinatorReplyFail(remote, client_id, client_req_id);
+    //
+    //     SendAbortParticipants(transaction_id, participants);
+    //
+    // } else if (s == WAIT_PARTICIPANTS) {
+    //     //Debug("[%lu] Waiting for other participants", transaction_id);
+    //
+    //     auto reply = new PendingRWCommitCoordinatorReply(client_id, client_req_id, remote.clone());
+    //     pending_rw_commit_c_replies_[transaction_id] = reply;
+    // } else {
+    //     NOT_REACHABLE();
+    // }
 }
 
 void Server::ContinueCoordinatorPrepare(uint64_t transaction_id) {
