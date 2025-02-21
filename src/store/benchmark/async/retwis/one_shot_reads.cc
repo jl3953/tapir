@@ -6,7 +6,7 @@
 
 namespace retwis {
     OneShotReads::OneShotReads(KeySelector *keySelector, std::mt19937 &rand)
-            : RetwisTransaction(keySelector, 5, rand, "one_shot_reads") {}
+            : RetwisTransaction(keySelector, 1, rand, "one_shot_reads") {}
 
     OneShotReads::~OneShotReads() {
     }

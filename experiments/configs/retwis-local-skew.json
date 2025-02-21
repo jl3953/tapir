@@ -18,29 +18,17 @@
     "ap-northeast-1-2"
   ],
   "consistency": [
-    "rss"
+    "ss"
   ],
-  "num_instances": 2,
+  "num_instances": 1,
   "shard_config_format_str": "shard-%d.config",
   "replica_config_format_str": "replica-%d.config",
   "network_config": "network.json",
-  "fault_tolerance": 1,
-  "num_shards": 3,
+  "fault_tolerance": 0,
+  "num_shards": 1,
   "shards": [
     [
-      "us-east-1-0",
-      "eu-west-1-0",
-      "ap-northeast-1-0"
-    ],
-    [
-      "us-east-1-0",
-      "eu-west-1-0",
-      "ap-northeast-1-0"
-    ],
-    [
-      "us-east-1-0",
-      "eu-west-1-0",
-      "ap-northeast-1-0"
+      "us-east-1-0"
     ]
   ],
   "client_total": 1,
@@ -72,7 +60,8 @@
   "truetime_error": 10,
   "client_num_keys": 1000000,
   "benchmark_name": "retwis",
-  "bench_mode": "open",
+  "bench_mode": "closed",
+  "mpl": 140,
   "client_key_selector": "zipf",
   "client_zipf_coefficient": 0.7,
   "client_arrival_rate": 1,
@@ -195,7 +184,7 @@
   "output_latency_scale": 1000,
   "src_commit_hash": "composition",
   "stats_file_name": "stats.json",
-  "base_local_exp_directory": "/home/jhelt/git/rss/tapir/experiments/results",
+  "base_local_exp_directory": "/home/jennifer/tapir/experiments/results",
   "base_mounted_fs_path": "/mnt/extra",
   "base_remote_bin_directory_nfs": "/home/jhelt/git/rss/tapir",
   "base_remote_exp_directory": "/mnt/extra/experiments",
@@ -209,7 +198,7 @@
   "num_experiment_runs": 1,
   "out_directory_name": "out",
   "server_bin_name": "server",
-  "src_directory": "/home/jhelt/git/rss/tapir/src",
+  "src_directory": "/home/jennifer/tapir/src",
   "make_collect_bins": [
     "store/benchmark/async/benchmark",
     "store/server"
